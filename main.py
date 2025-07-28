@@ -17,17 +17,19 @@ if __name__ == '__main__':
         "symbol": ["EURUSD=X", "AUDUSD=X", "GBPUSD=X", "NZDUSD=X", "CADUSD=X"],
         "start_date": "2020-01-01",
         "end_date": "2024-06-25",
+        "interval": "1d",
         "initial_capital": 1000000.0,
         "commission_pct": 0.0001,  # 0.1% commission
     }
 
-    data_handler = DataHandler(symbol=CONFIG["symbol"][0], start_date=CONFIG["start_date"],
-                               end_date=CONFIG["end_date"])
-    price_data = data_handler.get_data()
+    data_handler = DataHandler(symbols=CONFIG["symbol"], start_date=CONFIG["start_date"],
+                               end_date=CONFIG["end_date"], interval=CONFIG["interval"])
+
+    price_data_dict = data_handler.get_data()
 
     indicator_module = IndicatorModule()
 
-    price_data = indicator_module.add_supertrend2bands(price_data, period=14, multiplier=3.0)
+    price_data = indicator_module.add_supertrend2bands(price_data_dict["AUDUSD=X"], period=14, multiplier=3.0)
     price_data = indicator_module.add_ema(price_data, fast_period=10, slow_period=20)
 
     strategy_module = StrategyModule()
