@@ -62,3 +62,36 @@ if __name__ == '__main__':
         monte_carlo_results = monte_carlo_module.run()
         monte_carlo_plot = monte_carlo_module.plot_results(100)
 
+"""
+outline of how backtesting this hypothesis will go:
+
+will first obtain data using data handler as per usual (get all currency pairs required)
+
+from now on, everything else will be executed in "strategyModule"
+
+will first run calculate_returns_and_volatility on both the target currency pairs
+
+will then run rolling_coefficient_pearson on these two pairs to obtain the rolling coefficient series
+
+with this series, we will calculate rolling mean and std dev (will have a relatively long lookback window)
+
+whenever value goes below rolling std dev, a signal will be generated (for both currency pairs)
+
+we also have to calculate SL/TP values, as well as position sizes (for both currency pairs)
+
+
+what do we have to do before all this?
+
+- implement a way to backtest two different assets at once, since we are testing an arbitrage strategy
+    - will have to sort out portfolio management, backtestengine. for strategymodule, we can generate signals
+        separately anyway 
+    - will have to modify portfolio management such that position sizing depends on the data provided by the strategy 
+        module. Currently, position sizing depends on SL as well as current equity (cash). 
+        need to put trailing stop on hold
+    - will need a new tag for trades class, which is the symbol the current trade is in, since more than one asset is 
+        involved
+    - ideally, datahandler class will output a dict containing dataframes for all symbols
+    - ignore indicator module, monte carlo module and stats module for now (may need to revisit stats module in the future
+
+"""
+

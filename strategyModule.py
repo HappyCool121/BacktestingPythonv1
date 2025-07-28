@@ -7,17 +7,18 @@ import numpy as np
 class StrategyModule:
     """
     Generates trading signals based on the indicators.
-    This module is designed to be easily extendable.
-    Simply assigns 1, -1, and 0 to each row of the dataframe based on some indicators
-    new addition:
-    will now decide the stop loss and take profit prices/percentage
-    first implementation: super trend indicator and strategy:
-    will use atr for stop loss and take profit levels
+    This module is designed to be easily extendable, will generate signals as well as SL/TP levels
+    signal value contains information regarding the direction as well as the position size of the trade
+    by default, signal columns are filled with 0, -1 and 1.
+    in this case, the final position sizing is left to portfolio_management
+    however if position sizes are determined in strategy, which usually involves some form of confidence level
+    or arbitrage hedge, will also go through portfolio_management for the final position sizing.
+    the position sizing given here is relative in nature
 
-    outputs: dataframe with new columns:
-    data['signal']
-    data['stop_loss_level']
-    data['take_profit_level']
+    outputs: dataframe with new columns;
+    data['signal']: flaot
+    data['stop_loss_level']: float
+    data['take_profit_level']: float
     """
 
     def __init__(self):
@@ -66,6 +67,7 @@ class StrategyModule:
         """
         data['signal'] = np.where(data['rsi'] < rsi_low, 1, 0)
         data['signal'] = np.where(data['rsi'] > rsi_high, -1, data['signal'])
+
         return data
 
     def generateSupertrendSignals(self, data: pd.DataFrame, tp_mul: float, sl_mul: float) -> pd.DataFrame:
