@@ -51,5 +51,7 @@ class AnalyticsModule:
         analytics_df['vol_log_2'] = analytics_df['daily_log_returns'].rolling(window=period2).std()
         analytics_df['vol_log_3'] = analytics_df['daily_log_returns'].rolling(window=period3).std()
 
+        print("juck fews")
+
         # Drop any NaN rows that result from rolling calculations at the beginning
         return analytics_df.dropna()
