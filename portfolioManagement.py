@@ -100,6 +100,7 @@ class PortfolioManagement:
             risk_per_unit = stop_loss - entry_price
 
         if risk_per_unit <= 0:
+            print("invalid risk per unit")
             return  # Invalid stop loss, cannot calculate position size
 
         # 2. Calculate a base quantity based on risk appetite
@@ -116,6 +117,7 @@ class PortfolioManagement:
 
         # 5. Check if you have enough cash to cover the full cost (no leverage)
         if self.cash < total_cost:
+            print("insufficient cash")
             return  # Insufficient cash
 
         # 6. Deduct the full cost from cash and open the trade
@@ -124,11 +126,12 @@ class PortfolioManagement:
         new_trade_data = {
             'symbol': symbol, 'entry_price': entry_price, 'entry_date': entry_date,
             'quantity': final_quantity, 'stop_loss_price': stop_loss, 'take_profit_price': take_profit,
-            'tradeID': trade_ID, 'commission_initial': commission, 'trade_type': trade_type,
+            'tradeID': trade_ID, 'commission': commission, 'commission_initial': commission, 'trade_type': trade_type,
             'direction': direction
         }
 
         self.open_trades.append(Trades.create_from_dict(new_trade_data))
+        print("new trade created", new_trade_data)
 
     def close_trade(self, trade: Trades, exit_date: pd.Timestamp, exit_price: float, exit_reason: str):
         """
@@ -159,6 +162,7 @@ class PortfolioManagement:
         self.closed_trades.append(trade.to_dict())
         self.open_trades.remove(trade)
         self.trade_counter += 1
+        print("trade closed", trade.to_dict())
 
     def update_SL(self, trade: Trades, current_price: float): #not in use (yet)
         """

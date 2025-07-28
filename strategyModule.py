@@ -116,5 +116,4 @@ class StrategyModule:
                                              np.where(is_short_signal, (data['open'] - data['atr'] * tp_multiplier), 0))
 
         print(data.head())
-
         return data

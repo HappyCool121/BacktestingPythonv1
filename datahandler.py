@@ -44,6 +44,7 @@ class DataHandler:
 
             # Download data from yfinance
             df = yf.download(symbol, start=self.start_date, end=self.end_date, interval=self.interval)
+            print(df.head())
 
             if df.empty:
                 print(f"Warning: No data found for symbol {symbol}. Skipping.")

@@ -1,6 +1,7 @@
 # main file that runs backtest, all parameters are to be declared in this file
 
-from portfolioManagement import portfolio_management
+import pandas as pd
+from portfolioManagement import PortfolioManagement
 from backtestingEngine import BacktestEngine
 from monteCarlo import monteCarloSimulation
 from datahandler import DataHandler
@@ -9,60 +10,69 @@ from strategyModule import StrategyModule
 
 # _______________________________MAIN_______________________________
 if __name__ == '__main__':
-    # Using the original modules provided by the user for data and signal generation
-    # from __main__ import DataHandler, IndicatorModule, StrategyModule
-
-    # 1. CONFIGURE BACKTEST
+    # 1. CONFIGURE BACKTEST FOR A SINGLE ASSET
+    symbol_to_test = "BTC-USD"
     CONFIG = {
-        "symbol": ["EURUSD=X", "AUDUSD=X", "GBPUSD=X", "NZDUSD=X", "CADUSD=X"],
+        "symbols": [symbol_to_test], # Pass the symbol as a list
         "start_date": "2020-01-01",
         "end_date": "2024-06-25",
         "interval": "1d",
-        "initial_capital": 1000000.0,
-        "commission_pct": 0.0001,  # 0.1% commission
+        "initial_capital": 10000000.0,
+        "commission_pct": 0.0001,
+        "pct_capital_risk": 0.001,
+        "leverage": 1.0 # No leverage for now
     }
 
-    data_handler = DataHandler(symbols=CONFIG["symbol"], start_date=CONFIG["start_date"],
-                               end_date=CONFIG["end_date"], interval=CONFIG["interval"])
+    pd.set_option('display.max_columns', None)
 
+    # 2. PREPARE DATA AND SIGNALS
+    # DataHandler fetches data and returns a dictionary
+    data_handler = DataHandler(
+        symbols=CONFIG["symbols"],
+        start_date=CONFIG["start_date"],
+        end_date=CONFIG["end_date"],
+        interval=CONFIG["interval"]
+    )
     price_data_dict = data_handler.get_data()
 
+    # Isolate the DataFrame for our target symbol
+    df = price_data_dict[symbol_to_test]
+
+    # Apply indicators
     indicator_module = IndicatorModule()
+    df = indicator_module.add_supertrend2bands(df, period=14, multiplier=3.0)
+    # df = indicator_module.add_ema(df, fast_period=10, slow_period=20) # Example
 
-    price_data = indicator_module.add_supertrend2bands(price_data_dict["AUDUSD=X"], period=14, multiplier=3.0)
-    price_data = indicator_module.add_ema(price_data, fast_period=10, slow_period=20)
-
+    # Apply strategy to generate signals and SL/TP levels
     strategy_module = StrategyModule()
-    price_data_with_signals = strategy_module.generateSupertrendSignals(price_data, 100, 1)
-    # price_data_with_signals = strategy_module.generate_ema_crossover_signals(price_data, 2, 1)
+    df_with_signals = strategy_module.generateSupertrendSignals(df, tp_mul=3.0, sl_mul=1.5)
 
-    if not price_data_with_signals.empty:
-        # 3. INITIALIZE COMPONENTS
-        # The Portfolio is created and configured
-        portfolio = portfolio_management(
+    # --- Prepare data for the multi-asset engine ---
+    # Put the processed DataFrame back into a dictionary
+    final_data_dict = {symbol_to_test: df_with_signals}
+
+    # 3. INITIALIZE COMPONENTS
+    if not df_with_signals.empty:
+        portfolio = PortfolioManagement(
             initial_capital=CONFIG["initial_capital"],
-            commission_pct=CONFIG["commission_pct"]
+            commission_pct=CONFIG["commission_pct"],
         )
 
-        # The BacktestEngine is given the data and the portfolio to manage
+        # The BacktestEngine now takes the list of symbols and the dictionary of data
         backtester = BacktestEngine(
-            data=price_data_with_signals,
-            portfolio=portfolio,
-            profit_factor=2
+            symbols=CONFIG["symbols"],
+            data_dict=final_data_dict,
+            portfolio=portfolio
         )
 
         # 4. RUN AND GET RESULTS
-        run = backtester.run()
-
+        backtester.run()
         results = backtester.generate_results()
 
         # You can now access the detailed results if needed
         print("\n--- Final Trade Log ---")
-        print(results["metrics"])
+        print(results["trades"].head())
 
-        monte_carlo_module = monteCarloSimulation(results["returns_curve"], 1000, 10000.0)
-        monte_carlo_results = monte_carlo_module.run()
-        monte_carlo_plot = monte_carlo_module.plot_results(100)
 
 """
 outline of how backtesting this hypothesis will go:

@@ -54,7 +54,7 @@ class BacktestEngine:
 
         # Reset the index to have 'date' as a column again for the loop
         merged_df.reset_index(inplace=True)
-        print("Data preparation complete.")
+        print("Data preparation complete. Merged data:")
         print(merged_df.head())
         return merged_df
 
@@ -64,8 +64,11 @@ class BacktestEngine:
         """
         print('Starting multi-asset backtest...')
 
+        rowcounter = 0
+
         for index, row in self.data.iterrows():
             current_date = row['date']
+            rowcounter += 1
 
             # --- 1. Check and manage existing open trades ---
             for trade in self.portfolio.open_trades[:]:
@@ -94,9 +97,11 @@ class BacktestEngine:
                 signal_value = row.get(f'signal_{symbol}', 0)
 
                 if signal_value != 0:
+                    print(f'signal generated {rowcounter}')
                     # Ensure all required data for a trade exists on this row
-                    required_cols = [f'open_{symbol}', f'stop_loss_{symbol}', f'take_profit_{symbol}']
+                    required_cols = [f'open_{symbol}', f'stop_loss_level_{symbol}', f'take_profit_level_{symbol}']
                     if not all(col in row and pd.notna(row[col]) for col in required_cols):
+                        print('continued because of missing required columns')
                         continue  # Skip if any data is missing for this signal
 
                     self.portfolio.open_trade(
@@ -106,9 +111,10 @@ class BacktestEngine:
                         signal_value=signal_value,
                         trade_ID=self.trade_ID_counter,
                         trade_type="SIMPLE",
-                        stop_loss=row[f'stop_loss_{symbol}'],
-                        take_profit=row[f'take_profit_{symbol}'],
+                        stop_loss=row[f'stop_loss_level_{symbol}'],
+                        take_profit=row[f'take_profit_level_{symbol}'],
                     )
+                    print('trade opened')
                     self.trade_ID_counter += 1
 
             # --- 3. Record portfolio equity for the day ---
@@ -135,10 +141,10 @@ class BacktestEngine:
             columns={f'close_{primary_symbol}': 'close'})
 
         # You need to pass the actual StatisticsModule class here
-        # stats_module = StatisticsModule(equity_df, self.portfolio.closed_trades)
-        # metrics = stats_module.calculate_metrics()
-        # stats_module.display_report(metrics)
-        # stats_module.plot_equity(primary_asset_data, self.portfolio.initial_capital)
+        stats_module = StatisticsModule(equity_df, self.portfolio.closed_trades)
+        metrics = stats_module.calculate_metrics()
+        stats_module.display_report(metrics)
+        stats_module.plot_equity(primary_asset_data, self.portfolio.initial_capital)
 
         # For now, just returning the raw data
         return {
