@@ -1,0 +1,193 @@
+# portfolio management, handles trades and equity management
+
+import pandas as pd
+from trades import Trades
+
+# --- Module 5: Trade and equity management ---
+class portfolio_management:
+    """
+    Class to manage cash, positions, trades, and equity. Contains methods to open, close trades,
+    update PNL, stop loss, take profit. Will be responsible in calculation of position sizes with
+    attention to risk management. Tracks current liquid cash, as well as total equity (including
+    open trades). Most functions will be called within main backtesting methods. Will also contain
+    and handle lists of open trades (trade class objects), as well as closed trades (dicts).
+
+    Args:
+        initial capital - given by user when calling main backtesting method
+        commissions pct - percentage of commissions, also given by user
+
+    """
+
+    def __init__(self, initial_capital: float = 10000.0, commission_pct: float = 0.01):
+
+        self.initial_capital = initial_capital
+        self.commission_pct = commission_pct
+
+        self.cash = initial_capital # current liquid cash (excludes equity from open trades)
+        self.open_trades = [] # contains trades objects
+        self.closed_trades = [] # contains dicts (of all closed trades for statistics)
+        self.equity_history = [] # contains date and equity history
+        self.SL_hit = 0
+        self.TP_hit = 0
+        self.trade_counter = 0
+        self.end_of_backtest_hit = 0
+        self.pct_capital = 0.01 # to determine how much of capital to risk when opening trade
+        self.leverage = 2
+
+        # trades counter (rough, will be removed later on)
+
+    def record_equity(self, date, current_price: float):
+        """Records the total value of the portfolio at a point in time."""
+
+        unrealized_pnl = 0
+        for trade in self.open_trades:
+            if trade.direction == "LONG":
+                unrealized_pnl += (current_price - trade.entry_price) * trade.quantity
+            elif trade.direction == "SHORT":
+                unrealized_pnl += (trade.entry_price - current_price) * trade.quantity
+
+        open_positions_value = sum(trade.quantity * current_price for trade in self.open_trades)
+        total_equity = self.cash + open_positions_value
+        self.equity_history.append({'date': date, 'equity': total_equity})
+
+    def open_trade(self, entry_date: pd.Timestamp, entry_price: float, trade_ID: int, trade_type: str, direction: str, stop_loss: float, take_profit: float):
+        """
+        Opens trade given parameters by user
+        IMPT: need to ensure correct row iteration for row['date']
+              need to increment trade_id counter in the overarching iterator
+        Args: current price, entry date (input row['date'], SL/TP price, quantity, trade id, trade direction, trade type)
+
+        will handle both long and short trades, as given by backtest run methods. currently handles trade creation, position
+        sizing, as well as risk management (stop loss and take profit levels).
+
+        position sizing depends on the value of current liquid cash
+
+        currently, stop loss is calculated based on profit percentage and profit ratio
+        """
+
+        if direction == "LONG":
+
+            max_pct_loss = self.pct_capital  # self.pct_capital
+            max_loss_SL = entry_price - stop_loss # max loss per unit of asset
+
+            risk = (max_pct_loss * self.cash) # max dollar value loss based on risk appetite
+            quantity = risk / max_loss_SL  # quantity of trades that we can take according to max risk
+            cost = quantity * entry_price  # notional cost of trade
+            commission_initial = self.commission_pct * cost  # cost of commission based on notional cost
+            total_cost = cost + commission_initial # absolute notional cost of trade
+            leveraged_cost = total_cost / self.leverage # margin amount required
+
+            if self.cash < leveraged_cost:
+                print(f"Trade {trade_ID}, margin required: {leveraged_cost: .2f}, cash: {self.cash: .2f}, quantity: {quantity: .2f}, max_loss_actual{max_loss_SL: .2f}, risk{risk: .2f}: Insufficient margin to open trade.")
+
+            elif self.cash > leveraged_cost: #
+                self.cash -= leveraged_cost
+
+                #new trade, using create_from_dict method in trades class
+                new_trade = {
+                    'entry_price': entry_price,
+                    'entry_date': entry_date,
+                    'quantity': quantity,  # overwritten here, supposed to be: quantity
+                    'stop_loss_price': stop_loss, # overwritten here
+                    'take_profit_price': take_profit, # overwritten here
+                    'tradeID': trade_ID,
+                    'commission': self.commission_pct,  # commission is zero!
+                    'commission_initial': commission_initial,
+                    'trade_type': trade_type,
+                    'direction': direction# absolute commission paid
+                }
+
+                self.open_trades.append(Trades.create_from_dict(new_trade))
+                # for logging purposes
+                # print(f"OPENED: ID {trade_id}, Price: {entry_price:.2f}, Qty: {quantity}, SL: {stop_loss:.2f}, TP: {take_profit:.2f}")
+
+        elif direction == "SHORT":
+
+            max_pct_loss = self.pct_capital  # self.pct_capital
+            max_loss_SL = stop_loss - entry_price  # max loss per unit of asset
+
+            risk = (max_pct_loss * self.cash)  # max dollar value loss based on risk appetite
+            quantity = risk / max_loss_SL  # quantity of trades that we can take according to max risk
+            cost = quantity * entry_price  # notional cost of trade
+            commission_initial = self.commission_pct * cost  # cost of commission based on notional cost
+            total_cost = cost + commission_initial  # absolute notional cost of trade
+            leveraged_cost = total_cost / self.leverage  # margin amount required
+
+
+            if self.cash < leveraged_cost:
+                print(
+                    f"Trade {trade_ID}, cost: {leveraged_cost: .2f}, cash: {self.cash: .2f}, quantity: {quantity: .2f}, max_loss_actual{max_loss_SL: .2f}, risk{risk: .2f}: Insufficient funds to open trade.")
+
+            elif self.cash > leveraged_cost:
+                self.cash -= leveraged_cost
+
+                # new trade, using create_from_dict method in trades class
+                new_trade = {
+                    'entry_price': entry_price,
+                    'entry_date': entry_date,
+                    'quantity': quantity,  # overwritten here
+                    'stop_loss_price': stop_loss,  # overwritten here
+                    'take_profit_price': take_profit,  # overwritten here
+                    'tradeID': trade_ID,
+                    'commission': self.commission_pct,  # commission is zero!
+                    'commission_initial': commission_initial,
+                    'trade_type': trade_type,
+                    'direction': direction# absolute commission paid
+                }
+
+                self.open_trades.append(Trades.create_from_dict(new_trade))
+                # for logging purposes
+                # print(f"OPENED: ID {trade_id}, Price: {entry_price:.2f}, Qty: {quantity}, SL: {stop_loss:.2f}, TP: {take_profit:.2f}")
+
+    def close_trade(self, trade: Trades, exit_date: pd.Timestamp, exit_price: float, exit_reason: str):
+        """
+        Closes trade given parameters by user
+        closes using close_trades method in Trades class, converts to dict and appends to closed_trades,
+        removed from open_trades, update current liquid cash, update trade final PNL to match total proceeds
+        Args: exit date (input row['date'], exit price (close?), exit reason (e.g. STOP LOSS)
+        """
+
+        delta = (exit_price - trade.entry_price) * trade.quantity
+
+        if trade.direction == "LONG":
+            proceeds = delta * 1
+            final_proceeds = proceeds * (1 + self.commission_pct)
+            self.cash += final_proceeds + exit_price * trade.quantity / self.leverage
+            trade.pnl = final_proceeds
+
+            Trades.close_trade(trade, exit_price, exit_date, exit_reason, proceeds * self.commission_pct)
+            self.closed_trades.append(Trades.to_dict(trade))
+
+            self.trade_counter += 1
+            self.open_trades.remove(trade)
+
+
+        elif trade.direction == "SHORT":
+            proceeds = delta * -1
+            final_proceeds = proceeds * (1 + self.commission_pct)
+            self.cash += final_proceeds + exit_price * trade.quantity / self.leverage
+            trade.pnl = final_proceeds
+
+            Trades.close_trade(trade, exit_price, exit_date, exit_reason, proceeds * self.commission_pct)
+            self.closed_trades.append(Trades.to_dict(trade))
+
+            self.trade_counter += 1
+            self.open_trades.remove(trade)
+
+    def update_SL(self, trade: Trades, current_price: float):
+        """
+        Applies to trades of type trailing stop. Will be called at every iteration when during backtest run.
+        Logic: if current prices are higher than the entry price, SL will be updated according to the difference.
+        In the first scenario, we will only update the SL, and ignore the TP for now. In backtesting module, checks
+        for SL hit happens before updating of SL
+        """
+
+        if trade.trade_type != "TRAILING_SL_FIXED_TP" and trade.entry_price < current_price and trade.direction == "LONG":
+
+            if (current_price - trade.entry_price) + trade.stop_loss > trade.stop_loss:
+                trade.update_sl((current_price - trade.entry_price) + trade.stop_loss)
+
+        elif trade.trade_type != "TRAILING_SL_FIXED_TP" and trade.entry_price > current_price and trade.direction == "SHORT":
+
+            if trade.stop_loss - (current_price - trade.entry_price) < trade.stop_loss:
+                trade.update_sl(trade.stop_loss - (current_price - trade.entry_price))
