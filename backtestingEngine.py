@@ -2,7 +2,7 @@
 
 import pandas as pd
 from statisticsModule import StatisticsModule
-from portfolioManagement import portfolio_management
+from portfolioManagement import PortfolioManagement
 
 # --- Module 7: Running the backtest ---
 class BacktestEngine:
@@ -11,150 +11,138 @@ class BacktestEngine:
     of cash and open positions with advanced trade management features.
     """
     def __init__(self,
-         data: pd.DataFrame, portfolio: portfolio_management, profit_factor: float):
+         symbols: list[str], data_dict: dict[str: pd.DataFrame], portfolio: PortfolioManagement):
 
         """
         Initializes the iterative backtesting engine. Basic parameters are in arguments can be expanded later on.
         As of right now, there is data (time price data), initial capital, and transaction costs.
 
         Args:
-            data (pd.DataFrame): DataFrame with price data and a 'signal' column.
-            initial_capital (float): The starting capital for the portfolio.
-            commissions_pct (float): percentage of commissions/fees for each trade
+            symbols (list[str]): list of symbols to trade on
+            data_dict (dict[str: pd.DataFrame]): dict containing data for all symbols
+            portfolio (PortfolioManagement): portfolio management object
         """
 
-        self.data = data.copy()
+        self.symbols = symbols
         self.portfolio = portfolio
-        self.profit_factor = profit_factor
+        self.trade_ID_counter = 0
 
+        # --- Data Pre-processing Step ---
+        # Merge the dictionary of DataFrames into a single, wide DataFrame for easy iteration.
+        self.data = self._prepare_data(data_dict)
 
-        # portfolio class inputted already has the following properties:
-            # self.initial_capital = initial_capital
-            # self.commission_pct = commission_pct
+    def _prepare_data(self, data_dict: dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """
+        Merges a dictionary of DataFrames into a single time-aligned DataFrame.
+        """
+        print("Preparing and merging multi-asset data...")
+        processed_dfs = []
+        for symbol, df in data_dict.items():
+            # Set date as index to align all dataframes
+            df_indexed = df.set_index('date')
+            # Add the symbol as a suffix to each column (e.g., 'open' -> 'open_EURUSD=X')
+            df_suffixed = df_indexed.add_suffix(f'_{symbol}')
+            processed_dfs.append(df_suffixed)
 
-            # self.cash = initial_capital  # current liquid cash (excludes equity from open trades)
-            # self.open_trades = []  # contains trades objects
-            # self.closed_trades = []  # contains dicts (of closed trades)
-            # self.equity_history = []  # contains date and equity history
+        # Join all dataframes into one. 'outer' join handles missing dates for any symbol.
+        merged_df = pd.concat(processed_dfs, axis=1, join='outer')
 
-            # self.SL_hit = 0
-            # self.TP_hit = 0
-            # self.end_of_backtest_hit = 0
+        # Forward-fill missing values that can occur from non-trading days in some assets
+        merged_df.fillna(method='ffill', inplace=True)
+        # Drop any remaining NaN rows at the beginning
+        merged_df.dropna(inplace=True)
+
+        # Reset the index to have 'date' as a column again for the loop
+        merged_df.reset_index(inplace=True)
+        print("Data preparation complete.")
+        print(merged_df.head())
+        return merged_df
 
     def run(self):
         """
-        Executes the backtest, iterating through the entire dataframe. At each iteration,
-        1. go through trades that are already open to see if any are supposed to be closed
-        2. create new trades if there is a signal detected for that particular row
-        3. find total equity (liquid cash + pnl of open trades) for the current date
-
-        At the end of the loop, method should
-        1. close all current open trades with "END OF BACKTEST"
-        2. generate relevant results
-
-        Args: none
+        Executes the multi-asset backtest, iterating through the merged dataframe.
         """
+        print('Starting multi-asset backtest...')
 
-        print('Starting backtest...')
-        trade_ID_counter = 0
+        for index, row in self.data.iterrows():
+            current_date = row['date']
 
-        # move signal forward by one bar (DONE IN STRATEGY MODULE)
-        # self.data['signal'] = self.data['signal'].shift(1).fillna(0)  # signals to move forward by one
+            # --- 1. Check and manage existing open trades ---
+            for trade in self.portfolio.open_trades[:]:
+                symbol = trade.symbol
+                current_low = row.get(f'low_{symbol}')
+                current_high = row.get(f'high_{symbol}')
 
-        for index, row in self.data.iterrows(): #base iteration; through the whole pd
-
-            #1. check for open trades that have hit SL/TP
-            #2. those that didn't get stopped out, check if their stop loss needs to be updated
-            for trade in self.portfolio.open_trades:
+                # Skip if price data for this symbol isn't available on this date
+                if pd.isna(current_low) or pd.isna(current_high):
+                    continue
 
                 if trade.direction == "LONG":
-
-                    if row['low'] <= trade.stop_loss:
-                        self.portfolio.close_trade(trade, row['date'], trade.stop_loss, "STOP LOSS")
-
-                    elif row['high'] >= trade.take_profit:
-                        self.portfolio.close_trade(trade, row['date'], trade.take_profit, "TAKE PROFIT")
-
-                    elif trade.trade_type != "SIMPLE":
-                        self.portfolio.update_SL(trade, row['open'])
+                    if current_low <= trade.stop_loss:
+                        self.portfolio.close_trade(trade, current_date, trade.stop_loss, "STOP LOSS")
+                    elif current_high >= trade.take_profit:
+                        self.portfolio.close_trade(trade, current_date, trade.take_profit, "TAKE PROFIT")
 
                 elif trade.direction == "SHORT":
+                    if current_high >= trade.stop_loss:
+                        self.portfolio.close_trade(trade, current_date, trade.stop_loss, "STOP LOSS")
+                    elif current_low <= trade.take_profit:
+                        self.portfolio.close_trade(trade, current_date, trade.take_profit, "TAKE PROFIT")
 
-                    if row['high'] >= trade.stop_loss:
-                        self.portfolio.close_trade(trade, row['date'], exit_price=trade.stop_loss, exit_reason="STOP LOSS")
+            # --- 2. Check for new signals and open trades for each symbol ---
+            for symbol in self.symbols:
+                signal_value = row.get(f'signal_{symbol}', 0)
 
-                    elif row['low'] <= trade.take_profit:
-                        self.portfolio.close_trade(trade, row['date'], exit_price=trade.take_profit, exit_reason="TAKE PROFIT")
+                if signal_value != 0:
+                    # Ensure all required data for a trade exists on this row
+                    required_cols = [f'open_{symbol}', f'stop_loss_{symbol}', f'take_profit_{symbol}']
+                    if not all(col in row and pd.notna(row[col]) for col in required_cols):
+                        continue  # Skip if any data is missing for this signal
 
-                    elif trade.trade_type != "SIMPLE":
-                        self.portfolio.update_SL(trade, row['open'])
+                    self.portfolio.open_trade(
+                        entry_date=current_date,
+                        symbol=symbol,
+                        entry_price=row[f'open_{symbol}'],
+                        signal_value=signal_value,
+                        trade_ID=self.trade_ID_counter,
+                        trade_type="SIMPLE",
+                        stop_loss=row[f'stop_loss_{symbol}'],
+                        take_profit=row[f'take_profit_{symbol}'],
+                    )
+                    self.trade_ID_counter += 1
 
-            if row['signal'] == 1:
+            # --- 3. Record portfolio equity for the day ---
+            market_prices = {s: row.get(f'close_{s}') for s in self.symbols}
+            self.portfolio.record_equity(current_date, market_prices)
 
-                stop_loss_price = row['stop_loss_level']
-                take_profit_price = row['take_profit_level']
-
-                direction = "LONG"
-                entry_price = row['open']
-                trade_type = "TRAILING_SL_FIXED_TP"
-
-                self.portfolio.open_trade(
-                    entry_date=row['date'],
-                    entry_price=entry_price,
-                    trade_ID=trade_ID_counter,
-                    trade_type=trade_type,
-                    direction=direction,
-                    stop_loss=stop_loss_price,
-                    take_profit=take_profit_price,
-                )
-
-                trade_ID_counter += 1
-
-            elif row['signal'] == -1:
-
-                stop_loss_price = row['stop_loss_level']
-                take_profit_price = row['take_profit_level']
-
-                direction = "SHORT"
-                entry_price = row['open']
-                trade_type = "TRAILING_SL_FIXED_TP" #"SIMPLE"
-
-                self.portfolio.open_trade(
-                    entry_date=row['date'],
-                    entry_price=entry_price,
-                    trade_ID=trade_ID_counter,
-                    trade_type=trade_type,
-                    direction=direction,
-                    stop_loss=stop_loss_price,
-                    take_profit=take_profit_price,
-                )
-
-                trade_ID_counter += 1
-
-            self.portfolio.record_equity(row['date'], row['close'])
-
-        # end of loop
+        # --- 4. End of backtest: Close any remaining open positions ---
         if self.portfolio.open_trades:
-            last_price = self.data['close'].iloc[-1]
-            last_date = self.data['date'].iloc[-1]
+            last_row = self.data.iloc[-1]
+            last_date = last_row['date']
             for trade in self.portfolio.open_trades[:]:
-                self.portfolio.close_trade(trade, last_date, last_price, "End of Backtest")
+                last_price = last_row.get(f'close_{trade.symbol}')
+                if pd.notna(last_price):
+                    self.portfolio.close_trade(trade, last_date, last_price, "End of Backtest")
 
-        return 0
+        print("Backtest complete.")
 
-    # uses stats module
     def generate_results(self):
         """Generates and displays the final report and plot."""
         equity_df = pd.DataFrame(self.portfolio.equity_history)
-        stats_module = StatisticsModule(equity_df, self.portfolio.closed_trades)
 
-        metrics = stats_module.calculate_metrics()
-        stats_module.display_report(metrics)
-        stats_module.plot_equity(self.data, self.portfolio.initial_capital)
+        primary_symbol = self.symbols[0]
+        primary_asset_data = self.data[['date', f'close_{primary_symbol}']].rename(
+            columns={f'close_{primary_symbol}': 'close'})
 
+        # You need to pass the actual StatisticsModule class here
+        # stats_module = StatisticsModule(equity_df, self.portfolio.closed_trades)
+        # metrics = stats_module.calculate_metrics()
+        # stats_module.display_report(metrics)
+        # stats_module.plot_equity(primary_asset_data, self.portfolio.initial_capital)
+
+        # For now, just returning the raw data
         return {
-            "metrics": metrics,
-            "trades": stats_module.trades,
-            "equity_curve": stats_module.equity_curve,
-            "returns_curve": stats_module.returns
+            # "metrics": metrics,
+            "trades": pd.DataFrame(self.portfolio.closed_trades),
+            "equity_curve": pd.DataFrame(self.portfolio.equity_history)
         }

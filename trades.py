@@ -3,48 +3,56 @@ import pandas as pd
 
 # --- Module 4: Trades object ---
 class Trades:
+    """
+    Trades class used to create new trades objects, with parameters that can be changed any time.
+    To create a trade, a dict containing parameters will be inputted.
+    Trades object to dict method can be used for documentation when a trade is closed
+    """
+
     # trade parameters
     def __init__(self,
+                 symbol: str,
                  entry_price: float,  # depends on current price
                  entry_date: pd.Timestamp,
                  quantity: float,  # can be negative
                  stop_loss_price: float,
                  take_profit_price: float,
                  tradeID: int,
-                 commission: float,
+                 commission: float, # % of commissions to be paid (both entry and exit/buy and sell)
                  commission_initial: float,
-                 trade_type: str, #"SIMPLE", "TRAILING_SL_FIXED_TP"
+                 trade_type: str,
                  direction: str, #"LONG", "SHORT"
                  ):
 
-        self.tradeID = tradeID  # PLACEHOLDER!!!
+        self.tradeID = tradeID
 
         # --- Core Trade Properties ---
         # all are defined when trade is called when signal
+        self.symbol = symbol
         self.entry_price = entry_price
         self.entry_date = entry_date
         self.quantity = quantity
         self.status = "OPEN"  # Status can be 'OPEN' or 'CLOSED'
-        self.slippage = 0 # will be expanded in the future
+        self.slippage = 0 # NOT IN USE
         self.direction = direction #"LONG", "SHORT
 
         # Trade type (simple, trailing stop, ... etc)
-        self.trade_type = trade_type  # will be expanded in the future
+        self.trade_type = trade_type  # will be expanded in the future Currently: "SIMPLE"
 
         # commission logic:
         # when trade is opened, will find out the total equity required to take the trade, called cost of trade
         # commission will simply be on top of that, in terms of pct, so (1 + commission_pct) * cost of trade
-        self.commission = commission # this is the commissions pct
+        self.commission = commission # commissions pct
         self.commission_initial = commission_initial  # absolute value of commission paid when trade is opened, added to total cost of transactions
         self.commission_final = 0 # absolute value of commission paid when trade is closed, deducted from profits
 
         # --- Risk Management ---
         # can be updated with update_sl/update_tp methods
-        self.stop_loss = stop_loss_price #defined when given signal is generated and trade is executed
-        self.take_profit = take_profit_price #defined when given signal is generated and trade is executed
+        self.stop_loss = stop_loss_price # defined when given signal is generated and trade is executed
+        self.take_profit = take_profit_price # defined when given signal is generated and trade is executed
 
         # --- PnL Tracking ---
-        self.current_pnl = 0.0 #will be updated with update_pnl method
+        self.current_pnl = 0.0 # will be updated with update_pnl method
 
         # --- Exit Information (to be filled upon closing) ---
         self.exit_price = None
@@ -82,7 +90,7 @@ class Trades:
 
         # add COMMISSION_FINAL to trade when closed !!!!
 
-    # update stop loss, take profit
+    # update stop loss, take profit (NOT IN USE YET)
     def update_tp (self, updated_take_profit: float):
         self.take_profit = updated_take_profit
 
@@ -100,6 +108,7 @@ class Trades:
         closed, and such a dict is appended to a list
         """
         return {
+            'symbol': self.symbol,
             'entry_price': round(self.entry_price, 2),
             'entry_date': self.entry_date.strftime('%Y-%m-%d'),
             'quantity': self.quantity,
@@ -126,12 +135,24 @@ class Trades:
 
         Args:
             trade_data: A dictionary containing the arguments to create a Trades object.
-
+            Must contain:
+                symbol=trade_data['symbol'],
+                entry_price=trade_data['entry_price'],
+                entry_date=trade_data['entry_date'],
+                quantity=trade_data['quantity'],
+                stop_loss_price=trade_data['stop_loss_price'],
+                take_profit_price=trade_data['take_profit_price'],
+                tradeID=trade_data['tradeID'],
+                commission=trade_data['commission'],
+                commission_initial=trade_data['commission_initial'],
+                trade_type=trade_data['trade_type'],
+                direction=trade_data['direction'],
         Returns:
             A new Trades object.
         """
         # Unpack the dictionary into the Trades constructor using cls()
         return cls(
+            symbol=trade_data['symbol'],
             entry_price=trade_data['entry_price'],
             entry_date=trade_data['entry_date'],
             quantity=trade_data['quantity'],
