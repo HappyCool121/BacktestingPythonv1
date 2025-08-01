@@ -11,15 +11,16 @@ from strategyModule import StrategyModule
 # _______________________________MAIN_______________________________
 if __name__ == '__main__':
     # 1. CONFIGURE BACKTEST FOR A SINGLE ASSET
+    symbols = ["BTC-USD", "AUDUSD=X"]
     symbol_to_test = "BTC-USD"
     CONFIG = {
-        "symbols": [symbol_to_test], # Pass the symbol as a list
+        "symbols": symbols, # Pass the symbol as a list
         "start_date": "2020-01-01",
         "end_date": "2024-06-25",
         "interval": "1d",
-        "initial_capital": 10000000.0,
+        "initial_capital": 10000.0,
         "commission_pct": 0.0001,
-        "pct_capital_risk": 0.001,
+        "pct_capital_risk": 0.01,
         "leverage": 1.0 # No leverage for now
     }
 
@@ -45,7 +46,7 @@ if __name__ == '__main__':
 
     # Apply strategy to generate signals and SL/TP levels
     strategy_module = StrategyModule()
-    df_with_signals = strategy_module.generateSupertrendSignals(df, tp_mul=3.0, sl_mul=1.5)
+    df_with_signals = strategy_module.generateSupertrendSignals(df, tp_mul=2.0, sl_mul=1.0)
 
     # --- Prepare data for the multi-asset engine ---
     # Put the processed DataFrame back into a dictionary
@@ -67,7 +68,7 @@ if __name__ == '__main__':
 
         # 4. RUN AND GET RESULTS
         backtester.run()
-        results = backtester.generate_results()
+        results = backtester.generate_results(symbol_to_test)
 
         # You can now access the detailed results if needed
         print("\n--- Final Trade Log ---")

@@ -57,7 +57,9 @@ class PortfolioManagement:
         """
         unrealized_pnl = 0
         for trade in self.open_trades:
-            # 1. Look up the current price for the specific symbol of the trade
+
+            # 1. Look up the current price for the specific symbol of the trade, passed as a dict
+            # example of dict: 'BTC-USD' = 21903.01
             current_price = market_prices.get(trade.symbol)
 
             # 2. Safety check: If for some reason the price is missing, skip this trade's PnL calculation
@@ -66,9 +68,9 @@ class PortfolioManagement:
 
             # 3. Calculate unrealized PnL based on the trade's direction and its specific market price
             if trade.direction == "LONG":
-                unrealized_pnl += (current_price - trade.entry_price) * trade.quantity
+                unrealized_pnl += (current_price - trade.entry_price) * trade.quantity + trade.entry_price * trade.quantity
             elif trade.direction == "SHORT":
-                unrealized_pnl += (trade.entry_price - current_price) * trade.quantity
+                unrealized_pnl += (trade.entry_price - current_price) * trade.quantity + trade.entry_price * trade.quantity
 
         # The rest of the logic remains the same
         total_equity = self.cash + unrealized_pnl
@@ -80,7 +82,7 @@ class PortfolioManagement:
         IMPT: need to ensure correct row iteration for row['date']
               need to increment trade_id counter in the overarching iterator
         Args: current price, entry date (input row['date'], SL/TP price, quantity, trade id, trade direction, trade type)
-                relative position size (scaling factor for position size)
+                relative position size (scaling factor for position size), signal : to determine direction.
 
         will handle both long and short trades, as given by backtest run methods. currently handles trade creation, position
         sizing, as well as risk management (stop loss and take profit levels).
@@ -92,11 +94,12 @@ class PortfolioManagement:
             return  # No trade to open
 
         direction = "LONG" if signal_value > 0 else "SHORT"
+        risk_per_unit = 0
 
         # 1. Calculate per-unit risk based on the stop loss
         if direction == "LONG":
             risk_per_unit = entry_price - stop_loss
-        else:  # SHORT
+        elif direction == "SHORT":
             risk_per_unit = stop_loss - entry_price
 
         if risk_per_unit <= 0:
@@ -117,21 +120,24 @@ class PortfolioManagement:
 
         # 5. Check if you have enough cash to cover the full cost (no leverage)
         if self.cash < total_cost:
-            print("insufficient cash")
+            print(f'INSUFFICIENT CASH, current cash: {self.cash}, cost of trade: {total_cost}')
             return  # Insufficient cash
 
-        # 6. Deduct the full cost from cash and open the trade
-        self.cash -= total_cost
+        elif self.cash > total_cost:
 
-        new_trade_data = {
-            'symbol': symbol, 'entry_price': entry_price, 'entry_date': entry_date,
-            'quantity': final_quantity, 'stop_loss_price': stop_loss, 'take_profit_price': take_profit,
-            'tradeID': trade_ID, 'commission': commission, 'commission_initial': commission, 'trade_type': trade_type,
-            'direction': direction
-        }
+            # 6. Deduct the full cost from cash and open the trade
+            print(f'current cash: {self.cash}, cost of trade: {total_cost}, %: {total_cost / self.cash}')
+            self.cash -= total_cost
 
-        self.open_trades.append(Trades.create_from_dict(new_trade_data))
-        print("new trade created", new_trade_data)
+            new_trade_data = {
+                'symbol': symbol, 'entry_price': entry_price, 'entry_date': entry_date,
+                'quantity': final_quantity, 'stop_loss_price': stop_loss, 'take_profit_price': take_profit,
+                'tradeID': trade_ID, 'commission': commission, 'commission_initial': commission, 'trade_type': trade_type,
+                'direction': direction
+            }
+
+            self.open_trades.append(Trades.create_from_dict(new_trade_data))
+            print("Trade created, ", new_trade_data)
 
     def close_trade(self, trade: Trades, exit_date: pd.Timestamp, exit_price: float, exit_reason: str):
         """

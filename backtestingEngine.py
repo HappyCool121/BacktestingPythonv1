@@ -75,6 +75,7 @@ class BacktestEngine:
                 symbol = trade.symbol
                 current_low = row.get(f'low_{symbol}')
                 current_high = row.get(f'high_{symbol}')
+                #print(f'Current low: {current_low}, current high: {current_high}')
 
                 # Skip if price data for this symbol isn't available on this date
                 if pd.isna(current_low) or pd.isna(current_high):
@@ -83,21 +84,25 @@ class BacktestEngine:
                 if trade.direction == "LONG":
                     if current_low <= trade.stop_loss:
                         self.portfolio.close_trade(trade, current_date, trade.stop_loss, "STOP LOSS")
-                    elif current_high >= trade.take_profit:
+                        print(f'long STOP LOSS: low: {current_low} <= SL: {trade.stop_loss}')
+                    elif current_high > trade.take_profit:
                         self.portfolio.close_trade(trade, current_date, trade.take_profit, "TAKE PROFIT")
+                        print(f'long TAKE PROFIT: high {current_high} > TP: {trade.take_profit}')
 
                 elif trade.direction == "SHORT":
                     if current_high >= trade.stop_loss:
                         self.portfolio.close_trade(trade, current_date, trade.stop_loss, "STOP LOSS")
+                        print(f'short STOP LOSS: high {current_high} >= SL: {trade.stop_loss}')
                     elif current_low <= trade.take_profit:
                         self.portfolio.close_trade(trade, current_date, trade.take_profit, "TAKE PROFIT")
+                        print(f'short STOP LOSS: low {current_high} <= TP: {trade.take_profit}')
 
             # --- 2. Check for new signals and open trades for each symbol ---
             for symbol in self.symbols:
                 signal_value = row.get(f'signal_{symbol}', 0)
 
                 if signal_value != 0:
-                    print(f'signal generated {rowcounter}')
+                    # print(f'signal generated {rowcounter}')
                     # Ensure all required data for a trade exists on this row
                     required_cols = [f'open_{symbol}', f'stop_loss_level_{symbol}', f'take_profit_level_{symbol}']
                     if not all(col in row and pd.notna(row[col]) for col in required_cols):
@@ -114,29 +119,31 @@ class BacktestEngine:
                         stop_loss=row[f'stop_loss_level_{symbol}'],
                         take_profit=row[f'take_profit_level_{symbol}'],
                     )
-                    print('trade opened')
                     self.trade_ID_counter += 1
 
             # --- 3. Record portfolio equity for the day ---
             market_prices = {s: row.get(f'close_{s}') for s in self.symbols}
+            #print(market_prices)
             self.portfolio.record_equity(current_date, market_prices)
 
         # --- 4. End of backtest: Close any remaining open positions ---
         if self.portfolio.open_trades:
+            print('backtest complete, closing all remaining open trades')
             last_row = self.data.iloc[-1]
             last_date = last_row['date']
             for trade in self.portfolio.open_trades[:]:
                 last_price = last_row.get(f'close_{trade.symbol}')
                 if pd.notna(last_price):
                     self.portfolio.close_trade(trade, last_date, last_price, "End of Backtest")
+                    self.portfolio.record_equity(last_date, {s: last_row.get(f'close_{s}') for s in self.symbols})
 
         print("Backtest complete.")
 
-    def generate_results(self):
+    def generate_results(self, symbol: str):
         """Generates and displays the final report and plot."""
         equity_df = pd.DataFrame(self.portfolio.equity_history)
 
-        primary_symbol = self.symbols[0]
+        primary_symbol = symbol
         primary_asset_data = self.data[['date', f'close_{primary_symbol}']].rename(
             columns={f'close_{primary_symbol}': 'close'})
 
