@@ -1,6 +1,8 @@
 # main file that runs backtest, all parameters are to be declared in this file
 
 import pandas as pd
+
+from analyticsModule import AnalyticsModule
 from portfolioManagement import PortfolioManagement
 from backtestingEngine import BacktestEngine
 from monteCarlo import monteCarloSimulation
@@ -11,8 +13,8 @@ from strategyModule import StrategyModule
 # _______________________________MAIN_______________________________
 if __name__ == '__main__':
     # 1. CONFIGURE BACKTEST FOR A SINGLE ASSET
-    symbols = ["BTC-USD", "AUDUSD=X"]
-    symbol_to_test = "BTC-USD"
+    symbols = ["BTC-USD", "AUDUSD=X", "GC=F"]
+    symbol_to_test = "GC=F"
     CONFIG = {
         "symbols": symbols, # Pass the symbol as a list
         "start_date": "2020-01-01",
@@ -39,41 +41,65 @@ if __name__ == '__main__':
     # Isolate the DataFrame for our target symbol
     df = price_data_dict[symbol_to_test]
 
-    # Apply indicators
-    indicator_module = IndicatorModule()
-    df = indicator_module.add_supertrend2bands(df, period=14, multiplier=3.0)
-    # df = indicator_module.add_ema(df, fast_period=10, slow_period=20) # Example
+    analytics_module = AnalyticsModule()
 
-    # Apply strategy to generate signals and SL/TP levels
-    strategy_module = StrategyModule()
-    df_with_signals = strategy_module.generateSupertrendSignals(df, tp_mul=2.0, sl_mul=1.0)
+    df_with_analytics = analytics_module.calculate_returns_and_volatility(df, 7, 30, 365)
+    print(df_with_analytics.head())
 
-    # --- Prepare data for the multi-asset engine ---
-    # Put the processed DataFrame back into a dictionary
-    final_data_dict = {symbol_to_test: df_with_signals}
+    # result = analytics_module.plot_single_column(df_with_analytics, "daily_log_returns", "plot of daily log returns")
+    #
+    # plot1 = analytics_module.plot_autocorrelation(df_with_analytics['daily_log_returns'], "daily_log_returns")
+    #
+    # plot2 = analytics_module.plot_autocorrelation(df_with_analytics['daily_returns'], "daily_returns")
+    #
+    # plot3 = analytics_module.plot_single_column(df_with_analytics, "rolling_mean_log_returns_3", "plot of rolling mean log returns with period 1")
 
-    # 3. INITIALIZE COMPONENTS
-    if not df_with_signals.empty:
-        portfolio = PortfolioManagement(
-            initial_capital=CONFIG["initial_capital"],
-            commission_pct=CONFIG["commission_pct"],
-        )
+    adf1 = analytics_module.perform_adf_test(df_with_analytics['daily_log_returns'], 0.05)
 
-        # The BacktestEngine now takes the list of symbols and the dictionary of data
-        backtester = BacktestEngine(
-            symbols=CONFIG["symbols"],
-            data_dict=final_data_dict,
-            portfolio=portfolio
-        )
+    hurst = analytics_module.calculate_hurst_exponent(df_with_analytics['daily_log_returns'])
 
-        # 4. RUN AND GET RESULTS
-        backtester.run()
-        results = backtester.generate_results(symbol_to_test)
+    hurst2 = analytics_module.get_hurst_exponent(df_with_analytics['daily_log_returns'])
 
-        # You can now access the detailed results if needed
-        print("\n--- Final Trade Log ---")
-        print(results["trades"].head())
+    print(hurst2)
 
+#BACKTESTING STRATEGY
+
+
+    # # Apply indicators
+    # indicator_module = IndicatorModule()
+    # df = indicator_module.add_supertrend2bands(df, period=14, multiplier=3.0)
+    # # df = indicator_module.add_ema(df, fast_period=10, slow_period=20) # Example
+    #
+    # # Apply strategy to generate signals and SL/TP levels
+    # strategy_module = StrategyModule()
+    # df_with_signals = strategy_module.generateSupertrendSignals(df, tp_mul=2.0, sl_mul=1.0)
+    #
+    # # --- Prepare data for the multi-asset engine ---
+    # # Put the processed DataFrame back into a dictionary
+    # final_data_dict = {symbol_to_test: df_with_signals}
+    #
+    # # 3. INITIALIZE COMPONENTS
+    # if not df_with_signals.empty:
+    #     portfolio = PortfolioManagement(
+    #         initial_capital=CONFIG["initial_capital"],
+    #         commission_pct=CONFIG["commission_pct"],
+    #     )
+    #
+    #     # The BacktestEngine now takes the list of symbols and the dictionary of data
+    #     backtester = BacktestEngine(
+    #         symbols=CONFIG["symbols"],
+    #         data_dict=final_data_dict,
+    #         portfolio=portfolio
+    #     )
+    #
+    #     # 4. RUN AND GET RESULTS
+    #     backtester.run()
+    #     results = backtester.generate_results(symbol_to_test)
+    #
+    #     # You can now access the detailed results if needed
+    #     print("\n--- Final Trade Log ---")
+    #     print(results["trades"].head())
+    #
 
 """
 outline of how backtesting this hypothesis will go:

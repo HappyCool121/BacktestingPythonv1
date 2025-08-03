@@ -3,6 +3,8 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from numpy import cumsum, log, polyfit, sqrt, std, subtract, var, log10
+
 
 from statsmodels.graphics.tsaplots import plot_acf
 from statsmodels.tsa.stattools import acf, adfuller, kpss
@@ -172,6 +174,110 @@ class AnalyticsModule:
         else:
             return acf(x=data_series, nlags=nlags)
 
+    def perform_adf_test(self, series: pd.Series, significance_level: float = 0.05, regression: str = 'c', ):
+        """
+        Performs the Augmented Dickey-Fuller (ADF) test on a time series to check for stationarity.
+
+        The null hypothesis of the test is that the series has a unit root (it is non-stationary).
+        If the p-value is below the significance level, we reject the null hypothesis.
+
+        Args:
+            series (pd.Series): The time series data to test (e.g., a column of closing prices).
+            significance_level (float): The threshold for the p-value to reject the null hypothesis.
+        """
+        if not isinstance(series, pd.Series):
+            print("Error: Input must be a pandas Series.")
+            return
+
+        # Drop NaN values which can cause errors in the test
+        series_cleaned = series.dropna()
+
+        print(f"\n--- Augmented Dickey-Fuller Test Results for '{series_cleaned.name}' ---")
+
+        # Perform the ADF test
+        # The autolag='AIC' parameter automatically selects the optimal number of lags
+        adf_result = adfuller(series_cleaned, maxlag=None, regression='c', autolag='AIC', store=False, regresults=False)
+
+        # Extract and print the results in a readable format
+        print(f'ADF Statistic    : {adf_result[0]:.20f}')
+        print(f'p-value          : {adf_result[1]:.20f}')
+        print(f'# Lags Used      : {adf_result[2]}')
+        print(f'# Observations   : {adf_result[3]}')
+
+        print('\nCritical Values:')
+        for key, value in adf_result[4].items():
+            print(f'\t{key}: {value:.4f}')
+
+        # --- Interpretation of the results ---
+        print("\n--- Interpretation ---")
+        if adf_result[1] <= significance_level:
+            print(f"Conclusion: p-value ({adf_result[1]:.4f}) is less than or equal to {significance_level}.")
+            print(">> We reject the null hypothesis.")
+            print(">> The series is likely STATIONARY (does not have a unit root).")
+        else:
+            print(f"Conclusion: p-value ({adf_result[1]:.4f}) is greater than {significance_level}.")
+            print(">> We fail to reject the null hypothesis.")
+            print(">> The series is likely NON-STATIONARY (has a unit root).")
+        print("------------------------")
+
+    def calculate_hurst_exponent(self, series: pd.Series, max_lag: int = 100):
+        """
+        Calculates the Hurst Exponent of a time series using Rescaled Range (R/S) analysis.
+
+        Args:
+            series (pd.Series): The time series data to analyze.
+            max_lag (int): The maximum number of lags to use for the calculation.
+        """
+        if not isinstance(series, pd.Series):
+            print("Error: Input must be a pandas Series.")
+            return 0
+
+        series_cleaned = series.dropna()
+        lags = range(2, max_lag)
+
+        # Calculate the array of the variances of the lagged differences
+        tau = [np.sqrt(np.std(np.subtract(series_cleaned[lag:], series_cleaned[:-lag]))) for lag in lags]
+
+        # Use a polyfit to plot the log of lags vs the log of tau
+        poly = np.polyfit(np.log(lags), np.log(tau), 1)
+
+        # The Hurst Exponent is the slope of the line
+        hurst_exponent = poly[0] * 2.0
+
+        print(f"\n--- Hurst Exponent Calculation for '{series_cleaned.name}' ---")
+        print(f"Hurst Exponent   : {hurst_exponent:.4f}")
+
+        # --- Interpretation of the results ---
+        print("\n--- Interpretation ---")
+        if hurst_exponent < 0.5:
+            print(">> H < 0.5: The series is likely MEAN-REVERTING (anti-persistent).")
+            print("   A high value is likely to be followed by a low value and vice-versa.")
+        elif hurst_exponent > 0.5:
+            print(">> H > 0.5: The series is likely TRENDING (persistent).")
+            print("   A high value is likely to be followed by another high value.")
+        else:
+            print(">> H = 0.5: The series is likely a RANDOM WALK.")
+            print("   The movements are unpredictable.")
+        print("------------------------")
+
+        return hurst_exponent
+
+    def get_hurst_exponent(self, pd: pd.Series, max_lag=1000):
+        """Returns the Hurst Exponent of the time series"""
+
+        lags = range(2, max_lag)
+
+        time_series = pd.dropna()
+
+        # variances of the lagged differences
+        tau = [np.std(np.subtract(time_series[lag:], time_series[:-lag])) for lag in lags]
+
+        # calculate the slope of the log plot -> the Hurst Exponent
+        reg = np.polyfit(np.log(lags), np.log(tau), 1)
+
+        return reg[0]
+
+
     def plot_autocorrelation(self, data_series: pd.Series, title: str = "Autocorrelation Function", lags: int = None,
                              alpha: float = 0.05):
         """
@@ -199,6 +305,99 @@ class AnalyticsModule:
         plt.ylabel('Autocorrelation')
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.show()
+
+    def plot_single_column(self, df: pd.DataFrame, column_name: str, title: str = 'Single Column Plot', xlabel: str = 'Index',
+                           ylabel: str = None):
+        """
+        Plots a single specified column from a pandas DataFrame against its index.
+
+        Args:
+            df (pd.DataFrame): The DataFrame containing the data. Its index will be the x-axis.
+            column_name (str): The name of the column to plot on the y-axis.
+            title (str): The title for the chart.
+            xlabel (str): The label for the x-axis.
+            ylabel (str): The label for the y-axis. Defaults to the column_name if not provided.
+        """
+        # --- Input Validation ---
+        if not isinstance(df, pd.DataFrame):
+            print("Error: Input must be a pandas DataFrame.")
+            return
+
+        if column_name not in df.columns:
+            print(f"Error: Column '{column_name}' not found in the DataFrame.")
+            print(f"Available columns are: {list(df.columns)}")
+            return
+
+        if df.empty:
+            print("Warning: The provided DataFrame is empty. Nothing to plot.")
+            return
+
+        # If ylabel is not provided, use the column name
+        if ylabel is None:
+            ylabel = column_name
+
+        # --- Plotting Setup ---
+        plt.style.use('seaborn-v0_8-darkgrid')
+        fig, ax = plt.subplots(figsize=(15, 8))
+
+        # --- Plot the Selected Column ---
+        # This command uses the DataFrame's index for the x-axis and the specified column for the y-axis.
+        df[column_name].plot(ax=ax, color='royalblue', lw=2)
+
+        # --- Formatting ---
+        ax.set_title(f'Plot of {column_name}', fontsize=16)
+        ax.set_xlabel(xlabel, fontsize=12)
+        ax.set_ylabel(ylabel, fontsize=12)
+
+        plt.tight_layout()
+        plt.grid(True)
+        plt.show()
+
+    def plot_all_columns_on_shared_axis(df: pd.DataFrame, title: str = 'DataFrame Plot', xlabel: str = 'Index',
+                                        ylabel: str = 'Values'):
+        """
+        Plots every column of a pandas DataFrame as a separate line on a single chart.
+        All lines share the DataFrame's index as their common x-axis.
+
+        Args:
+            df (pd.DataFrame): The DataFrame to plot. Its index will be the x-axis.
+            title (str): The title for the chart.
+            xlabel (str): The label for the x-axis.
+            ylabel (str): The label for the y-axis.
+        """
+        if not isinstance(df, pd.DataFrame):
+            print("Error: Input must be a pandas DataFrame.")
+            return
+
+        if df.empty:
+            print("Warning: The provided DataFrame is empty. Nothing to plot.")
+            return
+
+        # --- Plotting Setup ---
+        plt.style.use('seaborn-v0_8-darkgrid')
+        fig, ax = plt.subplots(figsize=(15, 8))
+
+        # --- Plot Each Column ---
+        # This single command tells pandas to use the DataFrame's index for the x-axis
+        # and to create a separate line (series) for each column on the y-axis.
+        # It automatically assigns different colors and uses column names for the legend.
+        df.plot(ax=ax)
+
+        # --- Formatting ---
+        ax.set_title(title, fontsize=16)
+        ax.set_xlabel(xlabel, fontsize=12)
+        ax.set_ylabel(ylabel, fontsize=12)
+
+        # Place the legend outside of the plot area to avoid covering data
+        ax.legend(title='Columns', bbox_to_anchor=(1.02, 1), loc='upper left')
+
+        plt.tight_layout(rect=(0, 0, 0.9, 1))  # Adjust layout to make space for the legend
+        plt.grid(True)
+        plt.show()
+
+
+
+
 
 
 """
