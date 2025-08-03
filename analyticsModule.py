@@ -308,7 +308,7 @@ class AnalyticsModule:
             Tuple of (hurst_exponent, diagnostic_info)
         """
 
-        # Step 1: Clean and validate the data
+        # Step 1: Clean and validate the data (at least 50 data points)
         clean_series = series.dropna()
         if len(clean_series) < 50:
             raise ValueError(f"Need at least 50 data points, got {len(clean_series)}")
@@ -318,7 +318,7 @@ class AnalyticsModule:
             max_window = len(clean_series) // 4
 
         if max_window <= min_window:
-            raise ValueError("max_window must be greater than min_window")
+            raise ValueError(f'max_window ({max_window})must be greater than min_window {min_window}')
 
         # Step 3: Generate window sizes to test
         # Using logarithmic spacing gives better coverage across scales
@@ -462,7 +462,7 @@ class AnalyticsModule:
 
         print("=" * 60)
 
-        return hurst_exponent, diagnostics
+        return float(hurst_exponent), diagnostics
 
     def plot_hurst_analysis(self, hurst_exponent: float, diagnostics: dict,
                             series_name: str = "Time Series"):

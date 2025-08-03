@@ -57,6 +57,8 @@ if __name__ == '__main__':
     adf1 = analytics_module.perform_adf_test(df_with_analytics['daily_log_returns'], 0.05)
 
     hurst, diagnostics = analytics_module.analyze_your_returns(df_with_analytics['daily_returns'])
+
+
 #BACKTESTING STRATEGY
 
 
