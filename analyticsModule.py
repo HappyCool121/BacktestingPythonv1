@@ -230,13 +230,37 @@ class AnalyticsModule:
         """
         if not isinstance(series, pd.Series):
             print("Error: Input must be a pandas Series.")
-            return 0
+            return
 
         series_cleaned = series.dropna()
+
+        if len(series_cleaned) < max_lag:
+            print(
+                f"Error: Series length ({len(series_cleaned)}) is shorter than max_lag ({max_lag}). Cannot calculate Hurst Exponent.")
+            return np.nan
+
         lags = range(2, max_lag)
 
+        print("Index diagnostics:")
+        print(f"Index type: {type(series_cleaned.index)}")
+        print(f"Index min: {series_cleaned.index.min()}")
+        print(f"Index max: {series_cleaned.index.max()}")
+        print(f"Index is continuous: {series_cleaned.index.is_monotonic_increasing}")
+        print(f"First 10 index values: {series_cleaned.index[:10].tolist()}")
+        print(f"Last 10 index values: {series_cleaned.index[-10:].tolist()}")
+        print(f"Any duplicate indices: {series_cleaned.index.duplicated().any()}")
+
+        # Let's also check what happens when we manually align the arrays
+        lag = 2
+        array1 = series_cleaned.iloc[lag:]  # Use iloc for position-based indexing
+        array2 = series_cleaned.iloc[:-lag]
+        manual_diff = array1.values - array2.values  # Convert to numpy arrays to avoid index alignment
+        print(f"\nManual difference calculation (first 20 values): {manual_diff[:20]}")
+        print(f"Manual diff std: {np.std(manual_diff)}")
+
         # Calculate the array of the variances of the lagged differences
-        tau = [np.sqrt(np.std(np.subtract(series_cleaned[lag:], series_cleaned[:-lag]))) for lag in lags]
+        tau = [np.sqrt(np.std(series_cleaned.iloc[lag:].values - series_cleaned.iloc[:-lag].values)) for lag in lags]
+        print("Calculated Tau values:", tau)
 
         # Use a polyfit to plot the log of lags vs the log of tau
         poly = np.polyfit(np.log(lags), np.log(tau), 1)
@@ -262,21 +286,270 @@ class AnalyticsModule:
 
         return hurst_exponent
 
-    def get_hurst_exponent(self, pd: pd.Series, max_lag=1000):
-        """Returns the Hurst Exponent of the time series"""
+    def calculate_hurst_exponent_corrected(self, series: pd.Series,
+                                           min_window: int = 10,
+                                           max_window: int = None,
+                                           n_windows: int = 20) -> tuple[float, dict]:
+        """
+        Calculates the Hurst Exponent using the proper Rescaled Range (R/S) methodology.
 
-        lags = range(2, max_lag)
+        This implementation fixes the fundamental issues with the previous approach by:
+        1. Using cumulative deviations from the mean (not direct differences)
+        2. Calculating true rescaled range statistics (R/S)
+        3. Ensuring mathematically consistent results between 0 and 1
 
-        time_series = pd.dropna()
+        Args:
+            series: Time series data to analyze
+            min_window: Minimum window size for analysis
+            max_window: Maximum window size (defaults to series_length // 4)
+            n_windows: Number of different window sizes to test
 
-        # variances of the lagged differences
-        tau = [np.std(np.subtract(time_series[lag:], time_series[:-lag])) for lag in lags]
+        Returns:
+            Tuple of (hurst_exponent, diagnostic_info)
+        """
 
-        # calculate the slope of the log plot -> the Hurst Exponent
-        reg = np.polyfit(np.log(lags), np.log(tau), 1)
+        # Step 1: Clean and validate the data
+        clean_series = series.dropna()
+        if len(clean_series) < 50:
+            raise ValueError(f"Need at least 50 data points, got {len(clean_series)}")
 
-        return reg[0]
+        # Step 2: Set reasonable window size range
+        if max_window is None:
+            max_window = len(clean_series) // 4
 
+        if max_window <= min_window:
+            raise ValueError("max_window must be greater than min_window")
+
+        # Step 3: Generate window sizes to test
+        # Using logarithmic spacing gives better coverage across scales
+        window_sizes = np.unique(
+            np.logspace(np.log10(min_window), np.log10(max_window), n_windows).astype(int)
+        )
+
+        print(f"Analyzing {len(window_sizes)} window sizes from {window_sizes[0]} to {window_sizes[-1]}")
+
+        # Step 4: Calculate R/S statistics for each window size
+        rs_statistics = []
+
+        for window_size in window_sizes:
+            # Calculate how many non-overlapping windows we can fit
+            n_segments = len(clean_series) // window_size
+
+            if n_segments < 2:  # Need at least 2 segments for meaningful analysis
+                continue
+
+            segment_rs_values = []
+
+            # Step 5: Analyze each segment separately
+            for segment_idx in range(n_segments):
+                # Extract the segment data
+                start_idx = segment_idx * window_size
+                end_idx = start_idx + window_size
+                segment_data = clean_series.iloc[start_idx:end_idx].values
+
+                # Step 6: Calculate mean and deviations for this segment
+                segment_mean = np.mean(segment_data)
+                deviations = segment_data - segment_mean
+
+                # Step 7: Calculate cumulative sum of deviations
+                # This is the key step that captures long-term memory effects
+                cumulative_deviations = np.cumsum(deviations)
+
+                # Step 8: Calculate the Range (R)
+                # Range is the difference between max and min cumulative deviation
+                R = np.max(cumulative_deviations) - np.min(cumulative_deviations)
+
+                # Step 9: Calculate the Standard deviation (S)
+                # Use sample standard deviation (ddof=1)
+                S = np.std(segment_data, ddof=1)
+
+                # Step 10: Calculate R/S ratio (the rescaled range)
+                # This normalizes the range by the variability in the original data
+                if S > 0:  # Avoid division by zero
+                    segment_rs_values.append(R / S)
+
+            # Step 11: Average R/S across all segments for this window size
+            if segment_rs_values:
+                mean_rs = np.mean(segment_rs_values)
+                rs_statistics.append(mean_rs)
+            else:
+                rs_statistics.append(np.nan)
+
+        # Step 12: Remove any invalid values
+        valid_data = [(ws, rs) for ws, rs in zip(window_sizes, rs_statistics)
+                      if not np.isnan(rs) and rs > 0]
+
+        if len(valid_data) < 5:
+            raise ValueError("Not enough valid data points for reliable Hurst estimation")
+
+        valid_windows, valid_rs = zip(*valid_data)
+        valid_windows = np.array(valid_windows)
+        valid_rs = np.array(valid_rs)
+
+        # Step 13: Fit the power law relationship
+        # The Hurst exponent is the slope of log(window_size) vs log(R/S)
+        log_windows = np.log10(valid_windows)
+        log_rs = np.log10(valid_rs)
+
+        # Linear regression to find the slope
+        coefficients = np.polyfit(log_windows, log_rs, 1)
+        hurst_exponent = coefficients[0]  # The slope IS the Hurst exponent
+        intercept = coefficients[1]
+
+        # Step 14: Calculate goodness-of-fit measure
+        predicted_log_rs = hurst_exponent * log_windows + intercept
+        ss_residual = np.sum((log_rs - predicted_log_rs) ** 2)
+        ss_total = np.sum((log_rs - np.mean(log_rs)) ** 2)
+        r_squared = 1 - (ss_residual / ss_total) if ss_total > 0 else 0
+
+        # Step 15: Create diagnostic information
+        diagnostics = {
+            'window_sizes': valid_windows,
+            'rs_values': valid_rs,
+            'r_squared': r_squared,
+            'intercept': intercept,
+            'n_data_points': len(clean_series),
+            'n_window_sizes': len(valid_windows),
+            'log_windows': log_windows,
+            'log_rs': log_rs
+        }
+
+        # Step 16: Validate the result
+        if hurst_exponent < 0 or hurst_exponent > 1:
+            print(f"WARNING: Hurst exponent {hurst_exponent:.4f} is outside valid range [0,1]")
+            print("This suggests either data quality issues or computational problems")
+
+        # Step 17: Display results with interpretation
+        print(f"\n" + "=" * 60)
+        print(f"RESCALED RANGE ANALYSIS RESULTS")
+        print(f"=" * 60)
+        print(f"Series: {series.name if series.name else 'Unnamed'}")
+        print(f"Data points analyzed: {len(clean_series)}")
+        print(f"Window sizes tested: {len(valid_windows)}")
+        print(f"Hurst Exponent: {hurst_exponent:.4f}")
+        print(f"R-squared (fit quality): {r_squared:.4f}")
+
+        print(f"\n" + "-" * 40 + " INTERPRETATION " + "-" * 40)
+
+        if 0 <= hurst_exponent < 0.5:
+            strength = "Strong" if hurst_exponent < 0.4 else "Moderate" if hurst_exponent < 0.45 else "Weak"
+            print(f">> {strength} MEAN-REVERTING behavior (H = {hurst_exponent:.3f})")
+            print(f"   • The series tends to return toward its mean over time")
+            print(f"   • High values are more likely to be followed by lower values")
+            print(f"   • This suggests potential opportunities in mean-reversion strategies")
+
+        elif hurst_exponent > 0.5:
+            strength = "Strong" if hurst_exponent > 0.6 else "Moderate" if hurst_exponent > 0.55 else "Weak"
+            print(f">> {strength} TRENDING behavior (H = {hurst_exponent:.3f})")
+            print(f"   • The series shows persistence - trends tend to continue")
+            print(f"   • High values are more likely to be followed by higher values")
+            print(f"   • This suggests potential opportunities in momentum strategies")
+
+        else:  # Very close to 0.5
+            print(f">> RANDOM WALK behavior (H ≈ 0.5)")
+            print(f"   • The series shows no significant long-term memory")
+            print(f"   • Future movements are largely independent of past movements")
+            print(f"   • This is consistent with efficient market hypothesis")
+
+        # Step 18: Quality warnings
+        if r_squared < 0.8:
+            print(f"\n⚠️  WARNING: Low R-squared ({r_squared:.3f}) indicates poor fit")
+            print(f"   Consider using more data or checking for non-stationarity")
+
+        if len(valid_windows) < 10:
+            print(f"\n⚠️  WARNING: Only {len(valid_windows)} window sizes analyzed")
+            print(f"   Results may be less reliable with fewer data points")
+
+        print("=" * 60)
+
+        return hurst_exponent, diagnostics
+
+    def plot_hurst_analysis(self, hurst_exponent: float, diagnostics: dict,
+                            series_name: str = "Time Series"):
+        """
+        Creates a visualization of the Hurst exponent analysis to help understand the results.
+
+        This plot shows the log-log relationship that defines the Hurst exponent,
+        helping you see how well the power law fits your data.
+        """
+
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+
+        # Plot 1: The fundamental R/S relationship
+        log_windows = diagnostics['log_windows']
+        log_rs = diagnostics['log_rs']
+
+        # Scatter plot of actual data points
+        ax1.scatter(log_windows, log_rs, alpha=0.7, s=50, color='blue',
+                    label='Calculated R/S values')
+
+        # Fitted line
+        fitted_line = hurst_exponent * log_windows + diagnostics['intercept']
+        ax1.plot(log_windows, fitted_line, 'r-', linewidth=2,
+                 label=f'Fitted line (H = {hurst_exponent:.3f})')
+
+        # Reference lines for comparison
+        theoretical_05 = 0.5 * log_windows + diagnostics['intercept']
+        ax1.plot(log_windows, theoretical_05, 'g--', alpha=0.5,
+                 label='H = 0.5 (Random Walk)')
+
+        ax1.set_xlabel('log₁₀(Window Size)', fontsize=12)
+        ax1.set_ylabel('log₁₀(R/S)', fontsize=12)
+        ax1.set_title(f'Rescaled Range Analysis\nR² = {diagnostics["r_squared"]:.3f}',
+                      fontsize=14)
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+
+        # Plot 2: R/S values vs window size (linear scale)
+        windows = diagnostics['window_sizes']
+        rs_values = diagnostics['rs_values']
+
+        ax2.loglog(windows, rs_values, 'bo-', alpha=0.7, markersize=6,
+                   label='R/S Statistics')
+
+        # Theoretical lines for comparison
+        theoretical_rs_05 = (windows / windows[0]) ** 0.5 * rs_values[0]
+        theoretical_rs_h = (windows / windows[0]) ** hurst_exponent * rs_values[0]
+
+        ax2.loglog(windows, theoretical_rs_05, 'g--', alpha=0.5,
+                   label='H = 0.5 Expected')
+        ax2.loglog(windows, theoretical_rs_h, 'r-', linewidth=2,
+                   label=f'H = {hurst_exponent:.3f} Fitted')
+
+        ax2.set_xlabel('Window Size', fontsize=12)
+        ax2.set_ylabel('R/S Statistic', fontsize=12)
+        ax2.set_title(f'R/S Scaling Behavior\n{series_name}', fontsize=14)
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        plt.show()
+
+    # Example usage with your data:
+    def analyze_your_returns(self, daily_returns_series):
+        """
+        Analyzes your daily returns using the corrected Hurst exponent method.
+
+        This function demonstrates how to use the corrected implementation
+        and interpret the results for financial time series data.
+        """
+        try:
+            # Calculate the Hurst exponent using the proper method
+            hurst, diagnostics = self.calculate_hurst_exponent_corrected(
+                daily_returns_series,
+                min_window=10,  # Start with 10-day windows
+                max_window=None,  # Let the function choose based on data length
+                n_windows=25  # Test 25 different window sizes
+            )
+
+            # Create visualization to help understand the results
+            self.plot_hurst_analysis(hurst, diagnostics, daily_returns_series.name or "Daily Returns")
+
+            return hurst, diagnostics
+
+        except Exception as e:
+            print(f"Error in Hurst analysis: {e}")
+            return None, None
 
     def plot_autocorrelation(self, data_series: pd.Series, title: str = "Autocorrelation Function", lags: int = None,
                              alpha: float = 0.05):
