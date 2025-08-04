@@ -14,7 +14,7 @@ from strategyModule import StrategyModule
 if __name__ == '__main__':
     # 1. CONFIGURE BACKTEST FOR A SINGLE ASSET
     symbols = ["BTC-USD", "AUDUSD=X", "GC=F"]
-    symbol_to_test = "GC=F"
+    symbol_to_test = "AUDUSD=X"
     CONFIG = {
         "symbols": symbols, # Pass the symbol as a list
         "start_date": "2014-01-01",
@@ -48,19 +48,22 @@ if __name__ == '__main__':
 
     # result = analytics_module.plot_single_column(df_with_analytics, "daily_log_returns", "plot of daily log returns")
     #
-    # plot1 = analytics_module.plot_autocorrelation(df_with_analytics['daily_log_returns'], "daily_log_returns")
+    # plot_prices = analytics_module.plot_single_column(df, 'close', f'plot of daily close for {symbol_to_test}')
     #
-    # plot2 = analytics_module.plot_autocorrelation(df_with_analytics['daily_returns'], "daily_returns")
+    # hurst, diagnostics = analytics_module.analyze_your_returns(df_with_analytics['daily_log_returns'])
     #
-    # plot3 = analytics_module.plot_single_column(df_with_analytics, "rolling_mean_log_returns_3", "plot of rolling mean log returns with period 1")
+    # hurstvol, diagnosticsvol = analytics_module.analyze_your_returns(df_with_analytics['daily_log_returns_squared'])
+    #
+    # stationary_test = analytics_module.perform_comprehensive_stationarity_test(df_with_analytics['daily_log_returns'])
+    #
+    # autocorrelation_test2 = analytics_module.plot_autocorrelation_with_interpretation(df_with_analytics['daily_log_returns'])
+    #
+    # autocorrelation_testvol = analytics_module.plot_autocorrelation_with_interpretation(df_with_analytics['daily_log_returns_squared'])
 
-    adf1 = analytics_module.perform_adf_test(df_with_analytics['daily_returns'], 0.05)
+    hurst_class = analytics_module.HurstAnalyzer()
 
-    hurst, diagnostics = analytics_module.analyze_your_returns(df_with_analytics['daily_returns'])
-
-    stationary_test = analytics_module.perform_comprehensive_stationarity_test(df_with_analytics['daily_log_returns'])
-
-
+    rolling_hurst = hurst_class.calculate_rolling_hurst_exponent(df_with_analytics['daily_log_returns'])
+    print(rolling_hurst)
 
 #BACKTESTING STRATEGY
 

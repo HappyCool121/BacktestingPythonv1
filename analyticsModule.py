@@ -763,6 +763,591 @@ class AnalyticsModule:
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.show()
 
+    def plot_autocorrelation_with_interpretation(self, data_series: pd.Series, title: str = "Autocorrelation Function",
+                                                 lags: int = None, alpha: float = 0.05, interpret_results: bool = True):
+        """
+        Plots the Autocorrelation Function (ACF) for a given time series with optional interpretation.
+
+        The confidence intervals represent the bounds within which autocorrelations would fall
+        if the series were pure white noise (random). Values outside these bounds suggest
+        genuine patterns or structure in the data.
+
+        Args:
+            data_series (pd.Series): The time series data to analyze
+            title (str): Title for the plot
+            lags (int, optional): Number of lags to plot (default: min(10*log10(len(series)), len(series)-1))
+            alpha (float): Significance level for confidence intervals (0.05 = 95% confidence)
+            interpret_results (bool): Whether to print interpretation of results
+        """
+
+        if data_series.isnull().any():
+            print("Warning: Input data_series contains NaNs. Dropping NaNs for analysis.")
+            data_series = data_series.dropna()
+            if data_series.empty:
+                print("Error: data_series became empty after dropping NaNs. Cannot plot ACF.")
+                return
+
+        # Calculate ACF values for interpretation
+        n_obs = len(data_series)
+        max_lags = min(lags if lags else int(10 * np.log10(n_obs)), n_obs - 1)
+
+        # Get ACF values for numerical analysis
+        acf_values = acf(data_series, nlags=max_lags)
+
+        # Calculate confidence bounds (approximate for large samples)
+        confidence_bound = 1.96 / np.sqrt(n_obs)  # For 95% confidence
+
+        # Create the plot
+        fig, ax = plt.subplots(figsize=(12, 6))
+        plot_acf(x=data_series, lags=max_lags, alpha=alpha, ax=ax,
+                 title=f"{title} (n={n_obs}, {100 * (1 - alpha):.0f}% Confidence)", fft=True)
+        plt.xlabel('Lag')
+        plt.ylabel('Autocorrelation')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.show()
+
+        if interpret_results:
+            # Provide interpretation
+            print(f"\n--- Autocorrelation Analysis for '{data_series.name}' ---")
+            print(f"Sample size: {n_obs} observations")
+            print(f"Confidence level: {100 * (1 - alpha):.0f}%")
+            print(f"Confidence bounds: ±{confidence_bound:.4f}")
+
+            # Count significant autocorrelations (excluding lag 0 which is always 1)
+            significant_lags = []
+            for i in range(1, len(acf_values)):
+                if abs(acf_values[i]) > confidence_bound:
+                    significant_lags.append((i, acf_values[i]))
+
+            if significant_lags:
+                print(f"\nSignificant autocorrelations found at {len(significant_lags)} lags:")
+                for lag, value in significant_lags[:5]:  # Show first 5
+                    print(f"  Lag {lag}: {value:.4f}")
+                if len(significant_lags) > 5:
+                    print(f"  ... and {len(significant_lags) - 5} more")
+
+                # Provide context based on data type
+                if 'return' in data_series.name.lower():
+                    print("\nInterpretation for returns data:")
+                    print("- Significant autocorrelations in returns may indicate:")
+                    print("  • Market inefficiencies or predictable patterns")
+                    print("  • Microstructure effects (bid-ask bounce, etc.)")
+                    print("  • Non-synchronous trading effects")
+                else:
+                    print("\nInterpretation:")
+                    print("- Significant autocorrelations suggest the series has memory")
+                    print("- Past values provide information about future values")
+                    print("- Consider this when building forecasting models")
+            else:
+                print(f"\nNo significant autocorrelations detected.")
+                print("The series appears consistent with white noise (random process).")
+                print("This suggests past values don't help predict future values.")
+
+            # Warning about multiple testing
+            expected_false_positives = max_lags * alpha
+            if expected_false_positives >= 1:
+                print(f"\nNote: With {max_lags} lags tested at {alpha:.0%} significance,")
+                print(f"expect ~{expected_false_positives:.1f} false positives due to multiple testing.")
+
+            print("---" + "-" * 50)
+
+        return {
+            'acf_values': acf_values,
+            'confidence_bound': confidence_bound,
+            'significant_lags': significant_lags if interpret_results else None,
+            'n_observations': n_obs
+        }
+
+    class HurstAnalyzer: # Wrapped in a class for context
+
+        def calculate_rolling_hurst_exponent(self, series: pd.Series, window_size: int = 252,
+                                             min_periods: int = None, method: str = 'rs',
+                                             plot_results: bool = True, interpret_results: bool = True):
+            """
+            Calculates the rolling Hurst exponent to identify time-varying mean reversion and persistence patterns.
+
+            The Hurst exponent helps identify different market regimes:
+            - H < 0.5: Mean-reverting behavior (anti-persistent)
+            - H = 0.5: Random walk behavior (no memory)
+            - H > 0.5: Trending/persistent behavior (momentum)
+
+            This method reveals how these characteristics change over time, which is crucial for
+            understanding when mean reversion strategies might be most effective.
+
+            Args:
+                series (pd.Series): Time series data (typically log returns)
+                window_size (int): Rolling window size (default: 252 for ~1 year of daily data)
+                min_periods (int): Minimum observations required (default: window_size // 2)
+                method (str): Method for Hurst calculation ('rs' for R/S analysis, 'dfa' for detrended fluctuation)
+                plot_results (bool): Whether to create visualization
+                interpret_results (bool): Whether to provide detailed interpretation
+
+            Returns:
+                pd.Series: Rolling Hurst exponent values with same index as input series
+            """
+
+            if not isinstance(series, pd.Series):
+                print("Error: Input must be a pandas Series.")
+                return pd.Series()
+
+            # Clean the data
+            series_clean = series.dropna()
+            if len(series_clean) < window_size:
+                print(f"Error: Series length ({len(series_clean)}) is less than window size ({window_size})")
+                return pd.Series()
+
+            # Set minimum periods if not specified
+            if min_periods is None:
+                min_periods = max(50, window_size // 2)  # Ensure sufficient data for stable estimation
+
+            print(f"Calculating rolling Hurst exponent for '{series_clean.name}'")
+            print(f"Window size: {window_size}, Method: {method.upper()}")
+            print(f"This may take a moment for large datasets...")
+
+            def hurst_rs_method(data):
+                """
+                Calculate Hurst exponent using Rescaled Range (R/S) analysis.
+                This is the classic method that examines how the range of cumulative deviations
+                scales with different time horizons.
+                """
+                try:
+                    # Remove any remaining NaNs within the window
+                    clean_data = np.array(data.dropna())
+                    if len(clean_data) < 10:  # Need minimum data for meaningful calculation
+                        return np.nan
+
+                    N = len(clean_data)
+                    if N < 2:
+                        return np.nan
+
+                    # Calculate mean
+                    mean_val = np.mean(clean_data)
+
+                    # Calculate cumulative deviations from mean
+                    cumulative_deviations = np.cumsum(clean_data - mean_val)
+
+                    # Calculate range of cumulative deviations
+                    R = np.max(cumulative_deviations) - np.min(cumulative_deviations)
+
+                    # Calculate standard deviation
+                    S = np.std(clean_data, ddof=1)
+
+                    # Avoid division by zero
+                    if S == 0 or R == 0:
+                        return np.nan
+
+                    # For a single window, we approximate Hurst by comparing R/S to expected value
+                    # This is a simplified approach; full R/S analysis uses multiple time scales
+                    rs_ratio = R / S
+
+                    # Theoretical expectation for random walk: R/S ≈ sqrt(π*N/2)
+                    expected_rs = np.sqrt(np.pi * N / 2)
+
+                    # Hurst exponent approximation
+                    # If actual R/S > expected, H > 0.5 (persistent)
+                    # If actual R/S < expected, H < 0.5 (anti-persistent)
+                    hurst_approx = 0.5 + 0.5 * np.log(rs_ratio / expected_rs) / np.log(2)
+
+                    # Bound the result to reasonable range
+                    return np.clip(hurst_approx, 0.0, 1.0)
+
+                except Exception as e:
+                    return np.nan
+
+            def hurst_dfa_method(data):
+                """
+                Calculate Hurst exponent using Detrended Fluctuation Analysis (DFA).
+                This method is often more robust and handles non-stationarities better.
+                """
+                try:
+                    clean_data = np.array(data.dropna())
+                    if len(clean_data) < 20:  # DFA needs more data points
+                        return np.nan
+
+                    N = len(clean_data)
+
+                    # Step 1: Create integrated series (cumulative sum)
+                    integrated_series = np.cumsum(clean_data - np.mean(clean_data))
+
+                    # Step 2: Divide into boxes of different sizes
+                    # Use a smaller range of box sizes for rolling window
+                    max_box_size = min(N // 4, 50)  # Limit for computational efficiency
+                    min_box_size = max(4, N // 20)
+
+                    if max_box_size <= min_box_size:
+                        return np.nan
+
+                    box_sizes = np.logspace(np.log10(min_box_size), np.log10(max_box_size),
+                                            num=min(10, max_box_size - min_box_size + 1), dtype=int)
+                    box_sizes = np.unique(box_sizes)  # Remove duplicates
+
+                    if len(box_sizes) < 3:  # Need at least 3 points for regression
+                        return np.nan
+
+                    fluctuations = []
+
+                    for box_size in box_sizes:
+                        # Step 3: Detrend each box and calculate fluctuation
+                        n_boxes = N // box_size
+                        box_fluctuations = []
+
+                        for i in range(n_boxes):
+                            start_idx = i * box_size
+                            end_idx = start_idx + box_size
+                            box_data = integrated_series[start_idx:end_idx]
+
+                            # Fit linear trend to this box
+                            x = np.arange(len(box_data))
+                            if len(box_data) > 1:
+                                slope, intercept = np.polyfit(x, box_data, 1)
+                                trend = slope * x + intercept
+                                detrended = box_data - trend
+                                fluctuation = np.sqrt(np.mean(detrended ** 2))
+                                box_fluctuations.append(fluctuation)
+
+                        if box_fluctuations:
+                            avg_fluctuation = np.mean(box_fluctuations)
+                            fluctuations.append(avg_fluctuation)
+                        else:
+                            fluctuations.append(np.nan)
+
+                    # Remove any NaN fluctuations
+                    valid_indices = ~np.isnan(fluctuations)
+                    if np.sum(valid_indices) < 3:
+                        return np.nan
+
+                    valid_box_sizes = box_sizes[valid_indices]
+                    valid_fluctuations = np.array(fluctuations)[valid_indices]
+
+                    # Step 4: Calculate Hurst exponent from log-log slope
+                    # F(n) ~ n^H, so log(F(n)) ~ H * log(n)
+                    log_box_sizes = np.log(valid_box_sizes)
+                    log_fluctuations = np.log(valid_fluctuations)
+
+                    # Remove any infinite values
+                    finite_mask = np.isfinite(log_box_sizes) & np.isfinite(log_fluctuations)
+                    if np.sum(finite_mask) < 3:
+                        return np.nan
+
+                    hurst_exponent = np.polyfit(log_box_sizes[finite_mask],
+                                                log_fluctuations[finite_mask], 1)[0]
+
+                    # Bound the result
+                    return np.clip(hurst_exponent, 0.0, 1.0)
+
+                except Exception as e:
+                    return np.nan
+
+            # Choose the calculation method
+            if method.lower() == 'rs':
+                hurst_func = hurst_rs_method
+            elif method.lower() == 'dfa':
+                hurst_func = hurst_dfa_method
+            else:
+                print(f"Unknown method '{method}'. Using R/S method.")
+                hurst_func = hurst_rs_method
+
+            # Calculate rolling Hurst exponent
+            rolling_hurst = series_clean.rolling(window=window_size, min_periods=min_periods).apply(
+                hurst_func, raw=False
+            )
+
+            # Create results with proper naming
+            rolling_hurst.name = f'{series_clean.name}_hurst_{method}_{window_size}d'
+
+            if interpret_results:
+                print(f"\n--- Rolling Hurst Exponent Analysis ---")
+                print(f"Method: {method.upper()}")
+                print(f"Window size: {window_size} periods")
+                print(f"Valid calculations: {rolling_hurst.notna().sum()}/{len(rolling_hurst)}")
+
+                if rolling_hurst.notna().sum() > 0:
+                    valid_hurst = rolling_hurst.dropna()
+                    print(f"\nDescriptive Statistics:")
+                    print(f"  Mean Hurst: {valid_hurst.mean():.3f}")
+                    print(f"  Std Dev: {valid_hurst.std():.3f}")
+                    print(f"  Min: {valid_hurst.min():.3f}")
+                    print(f"  Max: {valid_hurst.max():.3f}")
+                    print(f"  Median: {valid_hurst.median():.3f}")
+
+                    # Classify periods
+                    mean_reverting = (valid_hurst < 0.5).sum()
+                    random_walk = ((valid_hurst >= 0.45) & (valid_hurst <= 0.55)).sum()  # Buffer around 0.5
+                    trending = (valid_hurst > 0.5).sum()
+
+                    total_periods = len(valid_hurst)
+                    print(f"\nMarket Regime Classification:")
+                    print(
+                        f"  Mean-reverting periods (H < 0.5): {mean_reverting} ({100 * mean_reverting / total_periods:.1f}%)")
+                    print(f"  Random walk periods (H ≈ 0.5): {random_walk} ({100 * random_walk / total_periods:.1f}%)")
+                    print(f"  Trending periods (H > 0.5): {trending} ({100 * trending / total_periods:.1f}%)")
+
+                    # Identify most extreme periods
+                    most_mean_reverting = valid_hurst.idxmin()
+                    most_trending = valid_hurst.idxmax()
+                    print(f"\nExtreme Periods:")
+                    # print(f"  Most mean-reverting: {most_mean_reverting.strftime('%Y-%m-%d')} (H = {valid_hurst.min():.3f})")
+                    # print(f"  Most trending: {most_trending.strftime('%Y-%m-%d')} (H = {valid_hurst.max():.3f})")
+
+            if plot_results and rolling_hurst.notna().sum() > 0:
+                # Create comprehensive visualization
+                fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 12))
+
+                # Plot 1: Original series
+                ax1.plot(series_clean.index, series_clean.values, alpha=0.7, linewidth=0.8)
+                ax1.set_title(f'Original Series: {series_clean.name}')
+                ax1.set_ylabel('Value')
+                ax1.grid(True, alpha=0.3)
+
+                # Plot 2: Rolling Hurst exponent
+                valid_hurst_for_plot = rolling_hurst.dropna()
+                ax2.plot(valid_hurst_for_plot.index, valid_hurst_for_plot.values,
+                         linewidth=1.5, color='darkblue', label=f'Rolling Hurst ({window_size}d)')
+
+                # Add reference lines
+                ax2.axhline(y=0.5, color='red', linestyle='--', alpha=0.7, label='Random Walk (H=0.5)')
+                ax2.axhline(y=0.4, color='green', linestyle=':', alpha=0.7, label='Mean Reverting (H<0.5)')
+                ax2.axhline(y=0.6, color='orange', linestyle=':', alpha=0.7, label='Trending (H>0.5)')
+
+                ax2.fill_between(valid_hurst_for_plot.index, 0.4, 0.6, alpha=0.1, color='gray',
+                                 label='Neutral zone')
+
+                ax2.set_title(f'Rolling Hurst Exponent ({method.upper()} method)')
+                ax2.set_ylabel('Hurst Exponent')
+                ax2.set_ylim(0, 1)
+                ax2.legend()
+                ax2.grid(True, alpha=0.3)
+
+                # Plot 3: Market regime classification
+                regime_colors = []
+                regime_values = []
+                for h in valid_hurst_for_plot.values:
+                    if h < 0.45:
+                        regime_colors.append('green')
+                        regime_values.append(1)  # Mean reverting
+                    elif h > 0.55:
+                        regime_colors.append('orange')
+                        regime_values.append(3)  # Trending
+                    else:
+                        regime_colors.append('gray')
+                        regime_values.append(2)  # Random walk
+
+                ax3.scatter(valid_hurst_for_plot.index, regime_values, c=regime_colors, alpha=0.6, s=10)
+                ax3.set_yticks([1, 2, 3])
+                ax3.set_yticklabels(
+                    ['Mean Reverting\n(H < 0.45)', 'Random Walk\n(0.45 ≤ H ≤ 0.55)', 'Trending\n(H > 0.55)'])
+                ax3.set_title('Market Regime Classification Over Time')
+                ax3.set_xlabel('Date')
+                ax3.grid(True, alpha=0.3)
+
+                plt.tight_layout()
+                plt.show()
+
+            return rolling_hurst
+
+        def analyze_hurst_regimes(self, series: pd.Series, rolling_hurst: pd.Series,
+                                  window_size: int = 252, regime_thresholds: tuple = (0.45, 0.55),
+                                  min_regime_duration: int = 20):
+            """
+            Analyzes the rolling Hurst exponent results to identify distinct market regimes
+            and their characteristics. This method helps validate and interpret the results
+            from calculate_rolling_hurst_exponent.
+
+            Args:
+                series (pd.Series): Original time series data (e.g., daily log returns)
+                rolling_hurst (pd.Series): Rolling Hurst exponent values
+                window_size (int): Window size used for Hurst calculation
+                regime_thresholds (tuple): (lower, upper) thresholds for regime classification
+                min_regime_duration (int): Minimum periods for a regime to be considered significant
+
+            Returns:
+                dict: Comprehensive analysis results including regime periods, statistics, and validation
+            """
+
+            if len(rolling_hurst.dropna()) == 0:
+                print("Error: No valid Hurst exponent values found.")
+                return {}
+
+            # Clean inputs and align indices
+            valid_hurst = rolling_hurst.dropna()
+            aligned_series = series.reindex(valid_hurst.index).dropna()
+
+            if len(aligned_series) == 0:
+                print("Error: No overlapping data between series and Hurst values.")
+                return {}
+
+            lower_threshold, upper_threshold = regime_thresholds
+
+            print(f"\n--- Hurst Exponent Regime Analysis ---")
+            print(
+                f"Analysis period: {valid_hurst.index[0].strftime('%Y-%m-%d')} to {valid_hurst.index[-1].strftime('%Y-%m-%d')}")
+            print(f"Regime thresholds: Mean-reverting < {lower_threshold}, Trending > {upper_threshold}")
+            print(f"Minimum regime duration: {min_regime_duration} periods")
+
+            # Classify each period into regimes
+            def classify_regime(h_value):
+                if h_value < lower_threshold:
+                    return 'Mean-Reverting'
+                elif h_value > upper_threshold:
+                    return 'Trending'
+                else:
+                    return 'Random Walk'
+
+            # Apply classification
+            regime_classification = valid_hurst.apply(classify_regime)
+
+            # Identify regime changes and continuous periods
+            regime_changes = regime_classification.ne(regime_classification.shift())
+            regime_periods = []
+
+            current_regime = None
+            regime_start_date = None
+
+            for date, is_change in regime_changes.items():
+                if is_change:
+                    # End previous regime if it exists and meets criteria
+                    if current_regime is not None and regime_start_date is not None:
+                        end_date = regime_classification.index[regime_classification.index.get_loc(date) - 1]
+                        period_slice = valid_hurst[regime_start_date:end_date]
+                        duration = len(period_slice)
+
+                        if duration >= min_regime_duration:
+                            regime_periods.append({
+                                'regime': current_regime,
+                                'start_date': regime_start_date,
+                                'end_date': end_date,
+                                'duration': duration,
+                                'avg_hurst': period_slice.mean(),
+                                'std_hurst': period_slice.std()
+                            })
+
+                    # Start new regime
+                    current_regime = regime_classification[date]
+                    regime_start_date = date
+
+            # Handle the last regime
+            if current_regime is not None and regime_start_date is not None:
+                period_slice = valid_hurst[regime_start_date:]
+                duration = len(period_slice)
+                if duration >= min_regime_duration:
+                    regime_periods.append({
+                        'regime': current_regime,
+                        'start_date': regime_start_date,
+                        'end_date': regime_classification.index[-1],
+                        'duration': duration,
+                        'avg_hurst': period_slice.mean(),
+                        'std_hurst': period_slice.std()
+                    })
+
+            # Calculate regime statistics
+            regime_stats = {}
+            for regime_type in ['Mean-Reverting', 'Random Walk', 'Trending']:
+                mask = regime_classification == regime_type
+                if mask.sum() > 0:
+                    regime_data = aligned_series[mask]
+                    hurst_data = valid_hurst[mask]
+
+                    # Ensure std is not zero before calculating Sharpe ratio
+                    volatility = regime_data.std()
+                    sharpe = (regime_data.mean() / volatility) * np.sqrt(252) if volatility > 0 else 0
+
+                    regime_stats[regime_type] = {
+                        'periods': mask.sum(),
+                        'percentage': 100 * mask.sum() / len(regime_classification),
+                        'avg_hurst': hurst_data.mean(),
+                        'std_hurst': hurst_data.std(),
+                        'avg_return': regime_data.mean(),
+                        'volatility': volatility,
+                        'max_drawdown': self._calculate_max_drawdown(regime_data),
+                        'annualized_sharpe_ratio': sharpe
+                    }
+
+            # Print detailed analysis
+            print(f"\nRegime Distribution:")
+            for regime_type, stats in regime_stats.items():
+                print(f"  {regime_type}: {stats['periods']} periods ({stats['percentage']:.1f}%)")
+                print(f"    Average Hurst: {stats['avg_hurst']:.3f} ± {stats['std_hurst']:.3f}")
+                print(
+                    f"    Performance: Avg Daily Return {stats['avg_return']:.5f}, Daily Vol {stats['volatility']:.5f}, Sharpe {stats['annualized_sharpe_ratio']:.3f}")
+
+            print(f"\nSignificant Regime Periods (≥{min_regime_duration} periods, showing last 10):")
+            for i, period in enumerate(regime_periods[-10:], 1):
+                print(
+                    f"  {i}. {period['regime']}: {period['start_date'].strftime('%Y-%m-%d')} to {period['end_date'].strftime('%Y-%m-%d')}")
+                print(f"     Duration: {period['duration']} periods, Avg Hurst: {period['avg_hurst']:.3f}")
+
+            # Validate results with additional metrics
+            validation_results = self._validate_hurst_regimes(aligned_series, regime_classification, valid_hurst)
+
+            print(f"\n--- Validation Results ---")
+            print(f"Regime persistence (autocorr of regime types): {validation_results['regime_persistence']:.3f}")
+            print(f"Mean H in Trending vs. Mean-Reverting: {validation_results['cross_regime_difference']:.3f}")
+            print(f"Correlation(Regime, Next Day's Return): {validation_results['regime_return_correlation']:.3f}")
+
+            # Package results
+            analysis_results = {
+                'regime_classification': regime_classification,
+                'regime_periods': regime_periods,
+                'regime_statistics': regime_stats,
+                'validation_results': validation_results,
+                'parameters': {
+                    'window_size': window_size,
+                    'regime_thresholds': regime_thresholds,
+                    'min_regime_duration': min_regime_duration,
+                    'analysis_start': valid_hurst.index[0],
+                    'analysis_end': valid_hurst.index[-1]
+                }
+            }
+
+            return analysis_results
+
+        def _calculate_max_drawdown(self, series: pd.Series):
+            """Helper method to calculate maximum drawdown for a return series."""
+            try:
+                # Add 1 to daily returns to get growth factors for cumulative product
+                cumulative = (1 + series).cumprod()
+                running_max = cumulative.expanding().max()
+                drawdown = (cumulative - running_max) / running_max
+                return drawdown.min()
+            except Exception:
+                return np.nan
+
+        def _validate_hurst_regimes(self, series: pd.Series, regime_classification: pd.Series,
+                                    hurst_values: pd.Series):
+            """Helper method to validate the regime classification results."""
+            results = {
+                'regime_persistence': 0.0,
+                'cross_regime_difference': 0.0,
+                'regime_return_correlation': 0.0
+            }
+            try:
+                # Test 1: Regime persistence (do regimes tend to persist?)
+                regime_numeric = regime_classification.map({
+                    'Mean-Reverting': -1, 'Random Walk': 0, 'Trending': 1
+                })
+                regime_persistence = regime_numeric.autocorr(lag=1)
+                results['regime_persistence'] = regime_persistence if pd.notna(regime_persistence) else 0.0
+
+                # Test 2: Cross-regime Hurst differences
+                mean_reverting_hurst = hurst_values[regime_classification == 'Mean-Reverting'].mean()
+                trending_hurst = hurst_values[regime_classification == 'Trending'].mean()
+                if pd.notna(trending_hurst) and pd.notna(mean_reverting_hurst):
+                    results['cross_regime_difference'] = trending_hurst - mean_reverting_hurst
+
+                # Test 3: Relationship between regime type and subsequent return's sign
+                # A negative correlation suggests mean-reverting regimes have positive future returns (rebound)
+                # and trending regimes have negative future returns (reversal of trend).
+                future_returns = series.shift(-1)
+                # Aligning data before calculating correlation
+                aligned_data = pd.concat([regime_numeric, future_returns], axis=1).dropna()
+                if not aligned_data.empty and len(aligned_data) > 1:
+                    regime_return_corr = aligned_data.corr().iloc[0, 1]
+                    results['regime_return_correlation'] = regime_return_corr if pd.notna(regime_return_corr) else 0.0
+
+                return results
+            except Exception:
+                return results
+
     def plot_single_column(self, df: pd.DataFrame, column_name: str, title: str = 'Single Column Plot', xlabel: str = 'Index',
                            ylabel: str = None):
         """
