@@ -13,8 +13,8 @@ from strategyModule import StrategyModule
 # _______________________________MAIN_______________________________
 if __name__ == '__main__':
     # 1. CONFIGURE BACKTEST FOR A SINGLE ASSET
-    symbols = ["BTC-USD", "AUDUSD=X", "GC=F"]
-    symbol_to_test = "BTC-USD"
+    symbols = ["GC=F"]
+    symbol_to_test = "GC=F"
     CONFIG = {
         "symbols": symbols, # Pass the symbol as a list
         "start_date": "2015-01-01",
@@ -50,7 +50,7 @@ if __name__ == '__main__':
     #
     plot_prices = analytics_module.plot_single_column(df, 'close', f'plot of daily close for {symbol_to_test}')
     #
-    # hurst, diagnostics = analytics_module.analyze_your_returns(df_with_analytics['daily_log_returns'])
+    hurst, diagnostics = analytics_module.analyze_your_returns(df_with_analytics['daily_log_returns'])
     #
     # hurstvol, diagnosticsvol = analytics_module.analyze_your_returns(df_with_analytics['daily_log_returns_squared'])
     #
@@ -65,6 +65,9 @@ if __name__ == '__main__':
     rolling_hurst = hurst_class.calculate_rolling_hurst_exponent(df_with_analytics['daily_log_returns'])
 
     analyze_regime = hurst_class.analyze_hurst_regimes(df_with_analytics['daily_log_returns'], rolling_hurst)
+
+    ou_results = analytics_module.estimate_ou_parameters_for_regimes(df_with_analytics['daily_log_returns'], analyze_regime['regime_classification'], analyze_regime)
+
 
 #BACKTESTING STRATEGY
 

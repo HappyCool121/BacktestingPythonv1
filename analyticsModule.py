@@ -880,6 +880,7 @@ class AnalyticsModule:
                 pd.Series: Rolling Hurst exponent values with same index as input series
             """
 
+        # Step 1: data cleaning:
             if not isinstance(series, pd.Series):
                 print("Error: Input must be a pandas Series.")
                 return pd.Series()
@@ -897,6 +898,7 @@ class AnalyticsModule:
             print(f"Window size: {window_size}, Method: {method.upper()}")
             print(f"This may take a moment for large datasets...")
 
+        # RS method for hurst exponent calculation:
             def hurst_rs_method(data):
                 """
                 Calculate Hurst exponent using Rescaled Range (R/S) analysis.
@@ -941,12 +943,13 @@ class AnalyticsModule:
                     # If actual R/S < expected, H < 0.5 (anti-persistent)
                     hurst_approx = 0.5 + 0.5 * np.log(rs_ratio / expected_rs) / np.log(2)
 
-                    # Bound the result to reasonable range
+                    # Bound the result to reasonable range (remove any values that doesn't make sense
                     return np.clip(hurst_approx, 0.0, 1.0)
 
                 except Exception as e:
                     return np.nan
 
+        # DFA method for hurst exponent calculation:
             def hurst_dfa_method(data):
                 """
                 Calculate Hurst exponent using Detrended Fluctuation Analysis (DFA).
@@ -1031,6 +1034,7 @@ class AnalyticsModule:
                 except Exception as e:
                     return np.nan
 
+
             # Choose the calculation method
             if method.lower() == 'rs':
                 hurst_func = hurst_rs_method
@@ -1045,7 +1049,7 @@ class AnalyticsModule:
                 hurst_func, raw=False
             )
 
-            # Create results with proper naming
+            # Create rolling hurst series result with proper naming
             rolling_hurst.name = f'{series_clean.name}_hurst_{method}_{window_size}d'
 
             if interpret_results:
@@ -1054,6 +1058,7 @@ class AnalyticsModule:
                 print(f"Window size: {window_size} periods")
                 print(f"Valid calculations: {rolling_hurst.notna().sum()}/{len(rolling_hurst)}")
 
+                # calculating analytics regarding hurst exponent
                 if rolling_hurst.notna().sum() > 0:
                     valid_hurst = rolling_hurst.dropna()
                     print(f"\nDescriptive Statistics:")
@@ -1063,11 +1068,12 @@ class AnalyticsModule:
                     print(f"  Max: {valid_hurst.max():.3f}")
                     print(f"  Median: {valid_hurst.median():.3f}")
 
-                    # Classify periods
+                    # Classify periods by range of hurst exponent values
                     mean_reverting = (valid_hurst < 0.5).sum()
                     random_walk = ((valid_hurst >= 0.45) & (valid_hurst <= 0.55)).sum()  # Buffer around 0.5
                     trending = (valid_hurst > 0.5).sum()
 
+                    # find percentage of each classification
                     total_periods = len(valid_hurst)
                     print(f"\nMarket Regime Classification:")
                     print(
@@ -1082,6 +1088,7 @@ class AnalyticsModule:
                     print(f"  Most mean-reverting: {most_mean_reverting} (H = {valid_hurst.min():.3f})")
                     print(f"  Most trending: {most_trending} (H = {valid_hurst.max():.3f})")
 
+            # Plot results of the rolling hurst exponent calculation (3 plots in total)
             if plot_results and rolling_hurst.notna().sum() > 0:
                 # Create comprehensive visualization
                 fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(14, 12))
@@ -1134,7 +1141,9 @@ class AnalyticsModule:
                 ax3.grid(True, alpha=0.3)
 
                 plt.tight_layout()
-                plt.show()
+                #plt.savefig('RollingHurst.png')
+                plt.show() #Plot
+
 
             return rolling_hurst
 
@@ -1161,15 +1170,14 @@ class AnalyticsModule:
                 print("Error: No valid Hurst exponent values found.")
                 return {}
 
-            # Clean inputs and align indices
+            # Clean inputs and align indices cleaned data: valid_hurst
             valid_hurst = rolling_hurst.dropna()
             aligned_series = series.reindex(valid_hurst.index).dropna()
 
             if len(aligned_series) == 0:
-                print("Error: No overlapping data between series and Hurst values.")
-                return {}
+                raise IndexError("Error: No overlapping data between series and Hurst values.")
 
-            lower_threshold, upper_threshold = regime_thresholds
+            lower_threshold, upper_threshold = regime_thresholds # tresholds to classify regimes determined by user
 
             print(f"\n--- Hurst Exponent Regime Analysis ---")
             print(
@@ -1186,7 +1194,7 @@ class AnalyticsModule:
                 else:
                     return 'Random Walk'
 
-            # Apply classification
+            # Apply classification using a classify_regime method above
             regime_classification = valid_hurst.apply(classify_regime)
 
             # Identify regime changes and continuous periods
@@ -1343,6 +1351,343 @@ class AnalyticsModule:
 
                 return results
 
+    def estimate_ou_parameters_for_regimes(self, series: pd.Series, regime_classification: pd.Series,
+                                           analysis_results: dict, min_observations: int = 30,
+                                           confidence_level: float = 0.95):
+        """
+        Estimates Ornstein-Uhlenbeck process parameters for mean-reverting regimes to quantify
+        the strength and speed of mean reversion.
+
+        The Ornstein-Uhlenbeck process: dX(t) = θ(μ - X(t))dt + σdW(t)
+        Where:
+        - θ (theta): Speed of mean reversion - higher values mean faster reversion
+        - μ (mu): Long-term equilibrium level the process reverts toward
+        - σ (sigma): Volatility parameter capturing random noise
+        - Half-life = ln(2)/θ: Time for half of any deviation to disappear
+
+        This method focuses on mean-reverting periods identified by Hurst analysis and
+        provides quantitative measures of mean reversion strength.
+
+        Args:
+            series (pd.Series): Original time series data (typically log returns)
+            regime_classification (pd.Series): Regime labels from Hurst analysis
+            analysis_results (dict): Results from analyze_hurst_regimes method
+            min_observations (int): Minimum data points needed for reliable estimation
+            confidence_level (float): Confidence level for parameter confidence intervals
+
+        Returns:
+            dict: OU parameter estimates for each mean-reverting regime period
+        """
+
+        print(f"\\n--- Ornstein-Uhlenbeck Parameter Estimation ---")
+        print(f"Analyzing mean-reverting regimes for OU process characteristics")
+        print(f"Minimum observations per regime: {min_observations}")
+        print(f"Confidence level: {confidence_level * 100:.0f}%")
+
+        # Extract mean-reverting regime periods from analysis results
+        regime_periods = analysis_results.get('regime_periods', [])
+        mean_reverting_periods = [p for p in regime_periods if p['regime'] == 'Mean-Reverting']
+
+        if not mean_reverting_periods:
+            print("No mean-reverting periods found in analysis results.")
+            return {}
+
+        print(f"Found {len(mean_reverting_periods)} mean-reverting regime periods")
+
+        ou_estimation_results = {}
+        successful_estimations = 0
+
+        # Initialize result collection lists at the start to avoid scoping issues
+        successful_thetas = []
+        successful_half_lives = []
+        successful_sigmas = []
+        successful_mus = []
+
+        for i, period in enumerate(mean_reverting_periods):
+            period_id = f"regime_{i + 1}"
+            start_date = period['start_date']
+            end_date = period['end_date']
+            duration = period['duration']
+
+            print(f"\\n--- Regime {i + 1}: {start_date} to {end_date} ({duration} periods) ---")
+
+            # Extract the time series data for this regime period
+            try:
+                # Ensure we have overlapping indices
+                regime_data = series.reindex(pd.date_range(start_date, end_date, freq='D')).dropna()
+
+                if len(regime_data) < min_observations:
+                    print(f"Insufficient data: {len(regime_data)} < {min_observations} observations")
+                    ou_estimation_results[period_id] = {
+                        'error': 'insufficient_data',
+                        'observations': len(regime_data),
+                        'period_info': period
+                    }
+                    continue
+
+            except Exception as e:
+                print(f"Error extracting regime data: {str(e)}")
+                continue
+
+            # Estimate OU parameters using discrete-time AR(1) approximation
+            ou_params = self._estimate_ou_parameters_single_regime(
+                regime_data, confidence_level, period_id
+            )
+
+            if ou_params['estimation_successful']:
+                successful_estimations += 1
+
+                # Collect parameters for summary statistics - this was the missing piece!
+                successful_thetas.append(ou_params['theta'])
+                successful_half_lives.append(ou_params['half_life'])
+                successful_sigmas.append(ou_params['sigma'])
+                successful_mus.append(ou_params['mu'])
+
+                print(f"✓ Estimation successful")
+                print(f"  Speed of reversion (θ): {ou_params['theta']:.4f}")
+                print(f"  Long-term mean (μ): {ou_params['mu']:.6f}")
+                print(f"  Volatility (σ): {ou_params['sigma']:.4f}")
+                print(f"  Half-life: {ou_params['half_life']:.2f} periods")
+                print(f"  Mean reversion strength: {ou_params['mean_reversion_strength']}")
+
+            else:
+                print(f"✗ Estimation failed: {ou_params.get('error_message', 'Unknown error')}")
+
+            # Add period information to results
+            ou_params['period_info'] = period
+            ou_params['regime_data_length'] = len(regime_data)
+            ou_estimation_results[period_id] = ou_params
+
+        # Summary statistics across all successful estimations - now properly handles empty lists
+        if successful_estimations > 0 and len(successful_thetas) > 0:
+            print(f"\\n--- Summary Across All Mean-Reverting Regimes ---")
+            print(f"Successfully estimated: {successful_estimations}/{len(mean_reverting_periods)} regimes")
+
+            # Collect parameters from successful estimations
+            successful_thetas = []
+            successful_half_lives = []
+            successful_sigmas = []
+
+            for result in ou_estimation_results.values():
+                if result.get('estimation_successful', False):
+                    successful_thetas.append(result['theta'])
+                    successful_half_lives.append(result['half_life'])
+                    successful_sigmas.append(result['sigma'])
+
+            if successful_thetas:
+                print(f"\\nSpeed of Reversion (θ) Statistics:")
+                print(f"  Mean: {np.mean(successful_thetas):.4f}")
+                print(f"  Median: {np.median(successful_thetas):.4f}")
+                print(f"  Std Dev: {np.std(successful_thetas):.4f}")
+                print(f"  Range: [{np.min(successful_thetas):.4f}, {np.max(successful_thetas):.4f}]")
+
+                print(f"\\nHalf-Life Statistics:")
+                print(f"  Mean: {np.mean(successful_half_lives):.2f} periods")
+                print(f"  Median: {np.median(successful_half_lives):.2f} periods")
+                print(f"  Range: [{np.min(successful_half_lives):.2f}, {np.max(successful_half_lives):.2f}] periods")
+
+                # Interpretation guidance
+                avg_theta = np.mean(successful_thetas)
+                avg_half_life = np.mean(successful_half_lives)
+
+                print(f"\\n--- Interpretation ---")
+                if avg_theta > 0.1:
+                    reversion_speed = "Fast"
+                elif avg_theta > 0.05:
+                    reversion_speed = "Moderate"
+                else:
+                    reversion_speed = "Slow"
+
+                print(f"Average reversion speed: {reversion_speed}")
+                print(f"Typical half-life: {avg_half_life:.1f} periods")
+                print(f"This suggests deviations from equilibrium typically")
+                print(f"shrink by 50% every {avg_half_life:.1f} periods during mean-reverting regimes.")
+
+        # Package comprehensive results
+        summary_results = {
+            'individual_regime_estimates': ou_estimation_results,
+            'successful_estimations': successful_estimations,
+            'total_regimes_analyzed': len(mean_reverting_periods),
+            'estimation_success_rate': successful_estimations / len(
+                mean_reverting_periods) if mean_reverting_periods else 0,
+            'summary_statistics': {
+                'theta_stats': {
+                    'mean': np.mean(successful_thetas) if successful_thetas else np.nan,
+                    'median': np.median(successful_thetas) if successful_thetas else np.nan,
+                    'std': np.std(successful_thetas) if successful_thetas else np.nan,
+                    'min': np.min(successful_thetas) if successful_thetas else np.nan,
+                    'max': np.max(successful_thetas) if successful_thetas else np.nan
+                },
+                'half_life_stats': {
+                    'mean': np.mean(successful_half_lives) if successful_half_lives else np.nan,
+                    'median': np.median(successful_half_lives) if successful_half_lives else np.nan,
+                    'min': np.min(successful_half_lives) if successful_half_lives else np.nan,
+                    'max': np.max(successful_half_lives) if successful_half_lives else np.nan
+                }
+            },
+            'parameters': {
+                'min_observations': min_observations,
+                'confidence_level': confidence_level
+            }
+        }
+
+        return summary_results
+
+    def _estimate_ou_parameters_single_regime(self, regime_data: pd.Series, confidence_level: float,
+                                              regime_id: str):
+        """
+        Estimates OU parameters for a single mean-reverting regime using AR(1) approximation.
+
+        The key insight is that a continuous-time OU process, when observed at discrete intervals,
+        follows an AR(1) model: X(t+Δt) = φX(t) + ε(t)
+
+        The relationship between AR(1) coefficient φ and OU parameters is:
+        - φ = exp(-θΔt) where Δt is the time step (1 day for daily data)
+        - θ = -ln(φ)/Δt (speed of mean reversion)
+        - Half-life = ln(2)/θ
+        """
+
+        result = {
+            'estimation_successful': False,
+            'regime_id': regime_id,
+            'observations': len(regime_data)
+        }
+
+        try:
+            # Step 1: Prepare data for AR(1) regression
+            # We need X(t) and X(t+1) pairs
+            y = regime_data.values[1:]  # X(t+1) - dependent variable
+            x = regime_data.values[:-1]  # X(t) - independent variable
+
+            if len(y) < 10:  # Need minimum observations for meaningful regression
+                result['error_message'] = 'Insufficient data for regression'
+                return result
+
+            # Step 2: Estimate AR(1) model: X(t+1) = α + φX(t) + ε(t)
+            # Using ordinary least squares regression
+
+            # Add intercept term for regression
+            X_design = np.column_stack([np.ones(len(x)), x])  # [1, X(t)] design matrix
+
+            # OLS estimation: β = (X'X)^(-1)X'y
+            try:
+                XtX = X_design.T @ X_design
+                Xty = X_design.T @ y
+                beta = np.linalg.solve(XtX, Xty)  # [α, φ] coefficients
+
+                alpha = beta[0]  # Intercept
+                phi = beta[1]  # AR(1) coefficient
+
+            except np.linalg.LinAlgError:
+                result['error_message'] = 'Singular matrix in regression'
+                return result
+
+            # Step 3: Calculate residuals and standard errors
+            y_pred = X_design @ beta
+            residuals = y - y_pred
+            residual_sum_squares = np.sum(residuals ** 2)
+            degrees_freedom = len(y) - 2  # n - p where p=2 parameters
+
+            if degrees_freedom <= 0:
+                result['error_message'] = 'Insufficient degrees of freedom'
+                return result
+
+            mse = residual_sum_squares / degrees_freedom  # Mean squared error
+
+            # Covariance matrix of parameter estimates
+            try:
+                cov_matrix = mse * np.linalg.inv(XtX)
+                se_alpha = np.sqrt(cov_matrix[0, 0])  # Standard error of intercept
+                se_phi = np.sqrt(cov_matrix[1, 1])  # Standard error of AR coefficient
+            except:
+                result['error_message'] = 'Could not compute standard errors'
+                return result
+
+            # Step 4: Transform AR(1) parameters to OU parameters
+            # For daily data, Δt = 1
+            delta_t = 1.0
+
+            # Check if φ is in valid range for mean reversion
+            if phi >= 1.0:
+                result['error_message'] = f'AR coefficient ({phi:.4f}) >= 1, indicates unit root, not mean reversion'
+                return result
+            elif phi <= -1.0:
+                result['error_message'] = f'AR coefficient ({phi:.4f}) <= -1, unstable process'
+                return result
+            elif phi <= 0:
+                result['error_message'] = f'AR coefficient ({phi:.4f}) <= 0, indicates over-shooting mean reversion'
+                return result
+
+            # Transform to OU parameters
+            theta = -np.log(phi) / delta_t  # Speed of mean reversion
+            mu = alpha / (1 - phi)  # Long-term mean level
+            sigma = np.sqrt(mse)  # Volatility parameter
+
+            # Calculate half-life
+            half_life = np.log(2) / theta
+
+            # Step 5: Calculate confidence intervals using delta method
+            # For θ = -ln(φ), the standard error is approximately se_phi/φ
+            se_theta = se_phi / phi if phi > 0 else np.nan
+
+            # Confidence intervals
+            from scipy import stats
+            alpha_level = 1 - confidence_level
+            t_critical = stats.t.ppf(1 - alpha_level / 2, degrees_freedom)
+
+            theta_ci_lower = theta - t_critical * se_theta
+            theta_ci_upper = theta + t_critical * se_theta
+
+            # Step 6: Model diagnostics
+            r_squared = 1 - (residual_sum_squares / np.sum((y - np.mean(y)) ** 2))
+
+            # Ljung-Box test for residual autocorrelation (simplified version)
+            residual_autocorr = np.corrcoef(residuals[:-1], residuals[1:])[0, 1] if len(residuals) > 1 else 0
+
+            # Classify mean reversion strength
+            if theta > 0.2:
+                reversion_strength = "Very Strong"
+            elif theta > 0.1:
+                reversion_strength = "Strong"
+            elif theta > 0.05:
+                reversion_strength = "Moderate"
+            elif theta > 0.01:
+                reversion_strength = "Weak"
+            else:
+                reversion_strength = "Very Weak"
+
+            # Package successful results
+            result.update({
+                'estimation_successful': True,
+                'ar1_alpha': alpha,
+                'ar1_phi': phi,
+                'ar1_alpha_se': se_alpha,
+                'ar1_phi_se': se_phi,
+                'theta': theta,
+                'mu': mu,
+                'sigma': sigma,
+                'theta_se': se_theta,
+                'theta_ci_lower': theta_ci_lower,
+                'theta_ci_upper': theta_ci_upper,
+                'half_life': half_life,
+                'mean_reversion_strength': reversion_strength,
+                'r_squared': r_squared,
+                'residual_autocorr': residual_autocorr,
+                'mse': mse,
+                'degrees_freedom': degrees_freedom,
+                'model_diagnostics': {
+                    'residual_mean': np.mean(residuals),
+                    'residual_std': np.std(residuals),
+                    'jarque_bera_statistic': None,  # Could add normality test
+                    'ljung_box_pvalue': None  # Could add formal autocorrelation test
+                }
+            })
+
+            return result
+
+        except Exception as e:
+            result['error_message'] = f'Unexpected error in OU estimation: {str(e)}'
+            return result
     def plot_single_column(self, df: pd.DataFrame, column_name: str, title: str = 'Single Column Plot', xlabel: str = 'Index',
                            ylabel: str = None):
         """
