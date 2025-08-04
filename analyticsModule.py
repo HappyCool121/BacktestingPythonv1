@@ -806,6 +806,7 @@ class AnalyticsModule:
         plt.grid(True, linestyle='--', alpha=0.7)
         plt.show()
 
+        significant_lags = []
         if interpret_results:
             # Provide interpretation
             print(f"\n--- Autocorrelation Analysis for '{data_series.name}' ---")
@@ -814,7 +815,6 @@ class AnalyticsModule:
             print(f"Confidence bounds: ±{confidence_bound:.4f}")
 
             # Count significant autocorrelations (excluding lag 0 which is always 1)
-            significant_lags = []
             for i in range(1, len(acf_values)):
                 if abs(acf_values[i]) > confidence_bound:
                     significant_lags.append((i, acf_values[i]))
@@ -827,13 +827,7 @@ class AnalyticsModule:
                     print(f"  ... and {len(significant_lags) - 5} more")
 
                 # Provide context based on data type
-                if 'return' in data_series.name.lower():
-                    print("\nInterpretation for returns data:")
-                    print("- Significant autocorrelations in returns may indicate:")
-                    print("  • Market inefficiencies or predictable patterns")
-                    print("  • Microstructure effects (bid-ask bounce, etc.)")
-                    print("  • Non-synchronous trading effects")
-                else:
+                if True:
                     print("\nInterpretation:")
                     print("- Significant autocorrelations suggest the series has memory")
                     print("- Past values provide information about future values")
@@ -893,8 +887,7 @@ class AnalyticsModule:
             # Clean the data
             series_clean = series.dropna()
             if len(series_clean) < window_size:
-                print(f"Error: Series length ({len(series_clean)}) is less than window size ({window_size})")
-                return pd.Series()
+                raise ValueError(f"Error: Series length ({len(series_clean)}) is less than window size ({window_size})")
 
             # Set minimum periods if not specified
             if min_periods is None:
@@ -938,7 +931,7 @@ class AnalyticsModule:
 
                     # For a single window, we approximate Hurst by comparing R/S to expected value
                     # This is a simplified approach; full R/S analysis uses multiple time scales
-                    rs_ratio = R / S
+                    rs_ratio = float(R) / float(S)
 
                     # Theoretical expectation for random walk: R/S ≈ sqrt(π*N/2)
                     expected_rs = np.sqrt(np.pi * N / 2)
@@ -1086,8 +1079,8 @@ class AnalyticsModule:
                     most_mean_reverting = valid_hurst.idxmin()
                     most_trending = valid_hurst.idxmax()
                     print(f"\nExtreme Periods:")
-                    # print(f"  Most mean-reverting: {most_mean_reverting.strftime('%Y-%m-%d')} (H = {valid_hurst.min():.3f})")
-                    # print(f"  Most trending: {most_trending.strftime('%Y-%m-%d')} (H = {valid_hurst.max():.3f})")
+                    print(f"  Most mean-reverting: {most_mean_reverting} (H = {valid_hurst.min():.3f})")
+                    print(f"  Most trending: {most_trending} (H = {valid_hurst.max():.3f})")
 
             if plot_results and rolling_hurst.notna().sum() > 0:
                 # Create comprehensive visualization
@@ -1105,14 +1098,14 @@ class AnalyticsModule:
                          linewidth=1.5, color='darkblue', label=f'Rolling Hurst ({window_size}d)')
 
                 # Add reference lines
-                ax2.axhline(y=0.5, color='red', linestyle='--', alpha=0.7, label='Random Walk (H=0.5)')
+                ax2.axhline(y=0.5, color='blue', linestyle='--', alpha=0.7, label='Random Walk (H=0.5)')
                 ax2.axhline(y=0.4, color='green', linestyle=':', alpha=0.7, label='Mean Reverting (H<0.5)')
-                ax2.axhline(y=0.6, color='orange', linestyle=':', alpha=0.7, label='Trending (H>0.5)')
+                ax2.axhline(y=0.6, color='red', linestyle=':', alpha=0.7, label='Trending (H>0.5)')
 
                 ax2.fill_between(valid_hurst_for_plot.index, 0.4, 0.6, alpha=0.1, color='gray',
                                  label='Neutral zone')
 
-                ax2.set_title(f'Rolling Hurst Exponent ({method.upper()} method)')
+                ax2.set_title(f'Rolling Hurst Exponent ({method.upper()} method), window: {window_size}')
                 ax2.set_ylabel('Hurst Exponent')
                 ax2.set_ylim(0, 1)
                 ax2.legend()
@@ -1126,10 +1119,10 @@ class AnalyticsModule:
                         regime_colors.append('green')
                         regime_values.append(1)  # Mean reverting
                     elif h > 0.55:
-                        regime_colors.append('orange')
+                        regime_colors.append('red')
                         regime_values.append(3)  # Trending
                     else:
-                        regime_colors.append('gray')
+                        regime_colors.append('blue')
                         regime_values.append(2)  # Random walk
 
                 ax3.scatter(valid_hurst_for_plot.index, regime_values, c=regime_colors, alpha=0.6, s=10)
@@ -1180,7 +1173,7 @@ class AnalyticsModule:
 
             print(f"\n--- Hurst Exponent Regime Analysis ---")
             print(
-                f"Analysis period: {valid_hurst.index[0].strftime('%Y-%m-%d')} to {valid_hurst.index[-1].strftime('%Y-%m-%d')}")
+                f"Analysis period: {valid_hurst.index[0]} to {valid_hurst.index[-1]}")
             print(f"Regime thresholds: Mean-reverting < {lower_threshold}, Trending > {upper_threshold}")
             print(f"Minimum regime duration: {min_regime_duration} periods")
 
@@ -1273,7 +1266,7 @@ class AnalyticsModule:
             print(f"\nSignificant Regime Periods (≥{min_regime_duration} periods, showing last 10):")
             for i, period in enumerate(regime_periods[-10:], 1):
                 print(
-                    f"  {i}. {period['regime']}: {period['start_date'].strftime('%Y-%m-%d')} to {period['end_date'].strftime('%Y-%m-%d')}")
+                    f"  {i}. {period['regime']}: {period['start_date']} to {period['end_date']}")
                 print(f"     Duration: {period['duration']} periods, Avg Hurst: {period['avg_hurst']:.3f}")
 
             # Validate results with additional metrics
@@ -1345,7 +1338,9 @@ class AnalyticsModule:
                     results['regime_return_correlation'] = regime_return_corr if pd.notna(regime_return_corr) else 0.0
 
                 return results
+
             except Exception:
+
                 return results
 
     def plot_single_column(self, df: pd.DataFrame, column_name: str, title: str = 'Single Column Plot', xlabel: str = 'Index',

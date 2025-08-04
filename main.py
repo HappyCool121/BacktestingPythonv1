@@ -14,11 +14,11 @@ from strategyModule import StrategyModule
 if __name__ == '__main__':
     # 1. CONFIGURE BACKTEST FOR A SINGLE ASSET
     symbols = ["BTC-USD", "AUDUSD=X", "GC=F"]
-    symbol_to_test = "AUDUSD=X"
+    symbol_to_test = "BTC-USD"
     CONFIG = {
         "symbols": symbols, # Pass the symbol as a list
-        "start_date": "2014-01-01",
-        "end_date": "2024-06-25",
+        "start_date": "2015-01-01",
+        "end_date": "2025-06-25",
         "interval": "1d",
         "initial_capital": 10000.0,
         "commission_pct": 0.0001,
@@ -48,7 +48,7 @@ if __name__ == '__main__':
 
     # result = analytics_module.plot_single_column(df_with_analytics, "daily_log_returns", "plot of daily log returns")
     #
-    # plot_prices = analytics_module.plot_single_column(df, 'close', f'plot of daily close for {symbol_to_test}')
+    plot_prices = analytics_module.plot_single_column(df, 'close', f'plot of daily close for {symbol_to_test}')
     #
     # hurst, diagnostics = analytics_module.analyze_your_returns(df_with_analytics['daily_log_returns'])
     #
@@ -63,7 +63,8 @@ if __name__ == '__main__':
     hurst_class = analytics_module.HurstAnalyzer()
 
     rolling_hurst = hurst_class.calculate_rolling_hurst_exponent(df_with_analytics['daily_log_returns'])
-    print(rolling_hurst)
+
+    analyze_regime = hurst_class.analyze_hurst_regimes(df_with_analytics['daily_log_returns'], rolling_hurst)
 
 #BACKTESTING STRATEGY
 
