@@ -17,7 +17,7 @@ if __name__ == '__main__':
     symbol_to_test = "GC=F"
     CONFIG = {
         "symbols": symbols, # Pass the symbol as a list
-        "start_date": "2020-01-01",
+        "start_date": "2014-01-01",
         "end_date": "2024-06-25",
         "interval": "1d",
         "initial_capital": 10000.0,
@@ -54,13 +54,15 @@ if __name__ == '__main__':
     #
     # plot3 = analytics_module.plot_single_column(df_with_analytics, "rolling_mean_log_returns_3", "plot of rolling mean log returns with period 1")
 
-    adf1 = analytics_module.perform_adf_test(df_with_analytics['daily_log_returns'], 0.05)
+    adf1 = analytics_module.perform_adf_test(df_with_analytics['daily_returns'], 0.05)
 
     hurst, diagnostics = analytics_module.analyze_your_returns(df_with_analytics['daily_returns'])
 
+    stationary_test = analytics_module.perform_comprehensive_stationarity_test(df_with_analytics['daily_log_returns'])
+
+
 
 #BACKTESTING STRATEGY
-
 
     # # Apply indicators
     # indicator_module = IndicatorModule()

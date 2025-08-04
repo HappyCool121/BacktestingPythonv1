@@ -3,7 +3,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from numpy import cumsum, log, polyfit, sqrt, std, subtract, var, log10
+# from numpy import cumsum, log, polyfit, sqrt, std, subtract, var, log10
 
 
 from statsmodels.graphics.tsaplots import plot_acf
@@ -65,7 +65,7 @@ class AnalyticsModule:
         Calculates and plots the rolling Pearson correlation coefficient between two assets' log returns.
 
         Args:
-            series_1 (pd.Series): first data series (can be any series, doesnt have to be log returns)
+            series_1 (pd.Series): first data series (can be any series, doesn't have to be log returns)
             series_2 (pd.Series): second data series (to compare to)
             symbol1 (str): The ticker symbol of the first asset (for documentation, actual data depends on input series)
             symbol2 (str): The ticker symbol of the second asset (for documentation, actual data depends on input series)
@@ -220,6 +220,185 @@ class AnalyticsModule:
             print(">> The series is likely NON-STATIONARY (has a unit root).")
         print("------------------------")
 
+    def perform_comprehensive_stationarity_test(self, series: pd.Series, significance_level: float = 0.05,
+                                                adf_regression: str = 'c', kpss_regression: str = "c",
+                                                kpss_nlags: str = "auto"):
+        """
+        Performs both ADF and KPSS tests to provide a comprehensive stationarity analysis.
+
+        This method combines two complementary tests:
+        - ADF Test: H0 = non-stationary, H1 = stationary
+        - KPSS Test: H0 = stationary, H1 = non-stationary
+
+        By using both tests together, we can classify results into four categories:
+        1. Both reject H0 → Conflicting results (further investigation needed)
+        2. ADF rejects, KPSS fails to reject → Strong evidence for stationarity
+        3. ADF fails to reject, KPSS rejects → Strong evidence for non-stationarity
+        4. Both fail to reject H0 → Inconclusive results
+
+        Args:
+            series (pd.Series): The time series data to test
+            significance_level (float): Significance level for both tests
+            adf_regression (str): Regression type for ADF test ('c', 'ct', 'ctt', 'nc')
+            kpss_regression (str): Regression type for KPSS test ('c' or 'ct')
+            kpss_nlags (str or int): Lag selection for KPSS test
+
+        Returns:
+            dict: Comprehensive results from both tests with combined interpretation
+        """
+        if not isinstance(series, pd.Series):
+            print("Error: Input must be a pandas Series.")
+            return {}
+
+        # Ensure we have sufficient data
+        series_cleaned = series.dropna()
+        if len(series_cleaned) < 10:
+            print("Error: Insufficient data points for stationarity tests. Need at least 10 observations.")
+            return {}
+
+        print(f"\n{'=' * 80}")
+        print(f"COMPREHENSIVE STATIONARITY ANALYSIS FOR '{series_cleaned.name}'")
+        print(f"{'=' * 80}")
+        print(f"Sample size: {len(series_cleaned)} observations")
+        print(f"Significance level: {significance_level}")
+
+        # Initialize results dictionary
+        comprehensive_results = {
+            'series_name': series_cleaned.name,
+            'sample_size': len(series_cleaned),
+            'significance_level': significance_level,
+            'adf': {},
+            'kpss': {}
+        }
+
+        # Perform ADF Test
+        print(f"\n{'-' * 40} ADF TEST {'-' * 40}")
+        try:
+            adf_result = adfuller(series_cleaned, maxlag=None, regression=adf_regression,
+                                  autolag='AIC', store=False, regresults=False)
+
+            adf_statistic = adf_result[0]
+            adf_pvalue = adf_result[1]
+            adf_lags = adf_result[2]
+            adf_nobs = adf_result[3]
+            adf_critical_values = adf_result[4]
+
+            # ADF Test results display
+            print(f'ADF Statistic    : {adf_statistic:.6f}')
+            print(f'ADF p-value      : {adf_pvalue:.6f}')
+            print(f'Lags Used        : {adf_lags}')
+            print(f'Observations     : {adf_nobs}')
+
+            adf_rejects_h0 = adf_pvalue <= significance_level
+            adf_conclusion = "STATIONARY" if adf_rejects_h0 else "NON-STATIONARY"
+            print(f'ADF Conclusion   : {adf_conclusion} (H0: non-stationary)')
+
+            comprehensive_results['adf'] = {
+                'statistic': adf_statistic,
+                'p_value': adf_pvalue,
+                'lags_used': adf_lags,
+                'critical_values': adf_critical_values,
+                'rejects_h0': adf_rejects_h0,
+                'conclusion': adf_conclusion
+            }
+
+        except Exception as e:
+            print(f"ADF Test failed: {str(e)}")
+            comprehensive_results['adf'] = {'error': str(e)}
+            return comprehensive_results
+
+        # Perform KPSS Test
+        print(f"\n{'-' * 40} KPSS TEST {'-' * 39}")
+        try:
+            kpss_result = kpss(series_cleaned, regression= "c", nlags= "auto")
+
+            kpss_statistic = kpss_result[0]
+            kpss_pvalue = kpss_result[1]
+            kpss_lags = kpss_result[2]
+            kpss_critical_values = kpss_result[3]
+
+            # KPSS Test results display
+            print(f'KPSS Statistic   : {kpss_statistic:.6f}')
+            print(f'KPSS p-value     : {kpss_pvalue:.6f}')
+            print(f'Lags Used        : {kpss_lags}')
+            print(f'Observations     : {len(series_cleaned)}')
+
+            kpss_rejects_h0 = kpss_pvalue <= significance_level
+            kpss_conclusion = "NON-STATIONARY" if kpss_rejects_h0 else "STATIONARY"
+            print(f'KPSS Conclusion  : {kpss_conclusion} (H0: stationary)')
+
+            comprehensive_results['kpss'] = {
+                'statistic': kpss_statistic,
+                'p_value': kpss_pvalue,
+                'lags_used': kpss_lags,
+                'critical_values': kpss_critical_values,
+                'rejects_h0': kpss_rejects_h0,
+                'conclusion': kpss_conclusion
+            }
+
+        except Exception as e:
+            print(f"KPSS Test failed: {str(e)}")
+            comprehensive_results['kpss'] = {'error': str(e)}
+            return comprehensive_results
+
+        # Combined Analysis and Interpretation
+        print(f"\n{'-' * 35} COMBINED ANALYSIS {'-' * 35}")
+        print("Test Summary:")
+        print(f"  ADF Test:  {adf_conclusion} (p-value: {adf_pvalue:.6f})")
+        print(f"  KPSS Test: {kpss_conclusion} (p-value: {kpss_pvalue:.6f})")
+
+        # Determine combined conclusion based on test results
+        if adf_rejects_h0 and not kpss_rejects_h0:
+            # ADF says stationary, KPSS says stationary → Strong evidence for stationarity
+            final_conclusion = "STATIONARY"
+            confidence_level = "HIGH"
+            interpretation = ("Both tests agree: Strong evidence that the series is STATIONARY.\n"
+                              "ADF rejects non-stationarity, KPSS accepts stationarity.")
+
+        elif not adf_rejects_h0 and kpss_rejects_h0:
+            # ADF says non-stationary, KPSS says non-stationary → Strong evidence for non-stationarity
+            final_conclusion = "NON-STATIONARY"
+            confidence_level = "HIGH"
+            interpretation = ("Both tests agree: Strong evidence that the series is NON-STATIONARY.\n"
+                              "ADF accepts non-stationarity, KPSS rejects stationarity.")
+
+        elif adf_rejects_h0 and kpss_rejects_h0:
+            # ADF says stationary, KPSS says non-stationary → Conflicting results
+            final_conclusion = "CONFLICTING"
+            confidence_level = "LOW"
+            interpretation = ("Conflicting results: ADF suggests stationarity while KPSS suggests non-stationarity.\n"
+                              "This may indicate the presence of structural breaks or other complications.\n"
+                              "Consider: (1) Different lag selections, (2) Structural break tests, (3) Visual inspection.")
+
+        else:
+            # Both fail to reject their respective null hypotheses → Inconclusive
+            final_conclusion = "INCONCLUSIVE"
+            confidence_level = "LOW"
+            interpretation = ("Inconclusive results: Neither test provides strong evidence.\n"
+                              "ADF cannot reject non-stationarity, KPSS cannot reject stationarity.\n"
+                              "Consider: (1) Larger sample size, (2) Different significance levels, (3) Visual analysis.")
+
+        print(f"\nFINAL ASSESSMENT:")
+        print(f"  Conclusion: {final_conclusion}")
+        print(f"  Confidence: {confidence_level}")
+        print(f"\nInterpretation:")
+        for line in interpretation.split('\n'):
+            if line.strip():
+                print(f"  {line}")
+
+        # Add combined results to return dictionary
+        comprehensive_results['combined_analysis'] = {
+            'final_conclusion': final_conclusion,
+            'confidence_level': confidence_level,
+            'interpretation': interpretation,
+            'adf_rejects_h0': adf_rejects_h0,
+            'kpss_rejects_h0': kpss_rejects_h0
+        }
+
+        print(f"\n{'=' * 80}")
+
+        return comprehensive_results
+
     def calculate_hurst_exponent(self, series: pd.Series, max_lag: int = 100):
         """
         Calculates the Hurst Exponent of a time series using Rescaled Range (R/S) analysis.
@@ -316,9 +495,10 @@ class AnalyticsModule:
         # Step 2: Set reasonable window size range
         if max_window is None:
             max_window = len(clean_series) // 4
+            print(f'max window: {max_window}, min window: {min_window}, length of series: {len(clean_series)}')
 
         if max_window <= min_window:
-            raise ValueError(f'max_window ({max_window})must be greater than min_window {min_window}')
+            raise ValueError(f'max_window ({max_window}) must be greater than min_window {min_window}')
 
         # Step 3: Generate window sizes to test
         # Using logarithmic spacing gives better coverage across scales
@@ -328,10 +508,14 @@ class AnalyticsModule:
 
         print(f"Analyzing {len(window_sizes)} window sizes from {window_sizes[0]} to {window_sizes[-1]}")
 
+
+
         # Step 4: Calculate R/S statistics for each window size
         rs_statistics = []
 
         for window_size in window_sizes:
+
+            print(f'calculating RS for window size {window_size}...')
             # Calculate how many non-overlapping windows we can fit
             n_segments = len(clean_series) // window_size
 
