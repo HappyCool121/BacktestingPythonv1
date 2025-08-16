@@ -11,7 +11,7 @@ class BacktestEngine:
     of cash and open positions with advanced trade management features.
     """
     def __init__(self,
-         symbols: list[str], data_dict: dict[str: pd.DataFrame], portfolio: PortfolioManagement):
+         symbols: list[str], data_dict: dict[str, pd.DataFrame], portfolio: PortfolioManagement):
 
         """
         Initializes the iterative backtesting engine. Basic parameters are in arguments can be expanded later on.

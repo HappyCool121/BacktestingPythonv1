@@ -8,6 +8,29 @@ import matplotlib.pyplot as plt
 
 from statsmodels.graphics.tsaplots import plot_acf
 from statsmodels.tsa.stattools import acf, adfuller, kpss
+from statsmodels.tsa.seasonal import seasonal_decompose
+
+from statsmodels.tsa.seasonal import seasonal_decompose
+
+class TimeSeriesAnalyticsModule:
+    """
+    exploring examples shared in the book
+    """
+    def seasonaldecompose(self, series: pd.Series) -> dict:
+
+        results = seasonal_decompose(series, model='additive', filt=None, period=1, two_sided=True,
+                                                    extrapolate_trend=0)
+
+        results_dict = {
+            'observed': results.observed.to_frame(name='observed'),
+            'trend': results.trend.to_frame(name='trend'),
+            'seasonal': results.seasonal.to_frame(name='seasonal'),
+            'residuals': results.resid.to_frame(name='residuals'),
+        }
+
+        print("successfully deseasonalized given series")
+
+        return results_dict
 
 # --- Module 2.5: Analytics module: statistical analysis  ---
 class AnalyticsModule:
@@ -1776,9 +1799,6 @@ class AnalyticsModule:
         plt.tight_layout(rect=(0, 0, 0.9, 1))  # Adjust layout to make space for the legend
         plt.grid(True)
         plt.show()
-
-
-
 
 
 

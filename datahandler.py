@@ -31,6 +31,8 @@ class DataHandler:
         Returns:
             Dict[str, pd.DataFrame]: A dictionary where keys are the symbol strings and values
                                      are the corresponding DataFrames with cleaned OHLCV data.
+                                     Date column is in datetime format, (datetime64[ns])
+                                     The index of each dataframe is the date, in datetime format.
                                      Returns an empty dictionary if the input list is empty.
         """
         if not self.symbols:
@@ -44,7 +46,6 @@ class DataHandler:
 
             # Download data from yfinance
             df = yf.download(symbol, start=self.start_date, end=self.end_date, interval=self.interval)
-            print(df.head())
 
             if df.empty:
                 print(f"Warning: No data found for symbol {symbol}. Skipping.")
@@ -56,6 +57,8 @@ class DataHandler:
             # 2. Select and rename columns to the desired format
             df = df[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']]
             df.columns = ['date', 'open', 'high', 'low', 'close', 'volume']
+            # df.set_index('date', inplace=True) # setting index as datetime
+            print(df.head())
 
             # 3. Add the cleaned DataFrame to our dictionary
             all_data[symbol] = df

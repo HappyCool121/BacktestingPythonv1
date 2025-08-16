@@ -1,4 +1,4 @@
-# main file that runs backtest, all parameters are to be declared in this file
+# arbitrary run file
 
 import pandas as pd
 
@@ -9,6 +9,7 @@ from monteCarlo import monteCarloSimulation
 from datahandler import DataHandler
 from indicatorModule import IndicatorModule
 from strategyModule import StrategyModule
+from analyticsModule import TimeSeriesAnalyticsModule
 
 # _______________________________MAIN_______________________________
 if __name__ == '__main__':
@@ -17,7 +18,7 @@ if __name__ == '__main__':
     symbol_to_test = "GC=F"
     CONFIG = {
         "symbols": symbols, # Pass the symbol as a list
-        "start_date": "2015-01-01",
+        "start_date": "2020-01-01",
         "end_date": "2025-06-25",
         "interval": "1d",
         "initial_capital": 10000.0,
@@ -41,32 +42,49 @@ if __name__ == '__main__':
     # Isolate the DataFrame for our target symbol
     df = price_data_dict[symbol_to_test]
 
+    timeseries_analytics_module = TimeSeriesAnalyticsModule()
     analytics_module = AnalyticsModule()
 
     df_with_analytics = analytics_module.calculate_returns_and_volatility(df, 7, 30, 365)
-    print(df_with_analytics.head())
+    # print(df_with_analytics.head())
+
+    time_series_results_dict = timeseries_analytics_module.seasonaldecompose(df_with_analytics['daily_log_returns'])
+
+    observed_df = time_series_results_dict['trend']
+
+    analytics_module.plot_single_column(df_with_analytics, "daily_log_returns")
+    analytics_module.plot_single_column(observed_df, "trend")
+
+
 
     # result = analytics_module.plot_single_column(df_with_analytics, "daily_log_returns", "plot of daily log returns")
+    # #
+    # plot_prices = analytics_module.plot_single_column(df, 'close', f'plot of daily close for {symbol_to_test}')
+    # #
+    # hurst, diagnostics = analytics_module.analyze_your_returns(df_with_analytics['daily_log_returns'])
+    # #
+    # # hurstvol, diagnosticsvol = analytics_module.analyze_your_returns(df_with_analytics['daily_log_returns_squared'])
+    # #
+    # # stationary_test = analytics_module.perform_comprehensive_stationarity_test(df_with_analytics['daily_log_returns'])
+    # #
+    # # autocorrelation_test2 = analytics_module.plot_autocorrelation_with_interpretation(df_with_analytics['daily_log_returns'])
+    # #
+    # # autocorrelation_testvol = analytics_module.plot_autocorrelation_with_interpretation(df_with_analytics['daily_log_returns_squared'])
     #
-    plot_prices = analytics_module.plot_single_column(df, 'close', f'plot of daily close for {symbol_to_test}')
+    # hurst_class = analytics_module.HurstAnalyzer()
     #
-    hurst, diagnostics = analytics_module.analyze_your_returns(df_with_analytics['daily_log_returns'])
+    # rolling_hurst = hurst_class.calculate_rolling_hurst_exponent(df_with_analytics['daily_log_returns'])
     #
-    # hurstvol, diagnosticsvol = analytics_module.analyze_your_returns(df_with_analytics['daily_log_returns_squared'])
+    # analyze_regime = hurst_class.analyze_hurst_regimes(df_with_analytics['daily_log_returns'], rolling_hurst)
     #
-    # stationary_test = analytics_module.perform_comprehensive_stationarity_test(df_with_analytics['daily_log_returns'])
+    # ou_results = analytics_module.estimate_ou_parameters_for_regimes(df_with_analytics['daily_log_returns'], analyze_regime['regime_classification'], analyze_regime)
     #
-    # autocorrelation_test2 = analytics_module.plot_autocorrelation_with_interpretation(df_with_analytics['daily_log_returns'])
     #
-    # autocorrelation_testvol = analytics_module.plot_autocorrelation_with_interpretation(df_with_analytics['daily_log_returns_squared'])
 
-    hurst_class = analytics_module.HurstAnalyzer()
 
-    rolling_hurst = hurst_class.calculate_rolling_hurst_exponent(df_with_analytics['daily_log_returns'])
 
-    analyze_regime = hurst_class.analyze_hurst_regimes(df_with_analytics['daily_log_returns'], rolling_hurst)
 
-    ou_results = analytics_module.estimate_ou_parameters_for_regimes(df_with_analytics['daily_log_returns'], analyze_regime['regime_classification'], analyze_regime)
+
 
 
 #BACKTESTING STRATEGY
