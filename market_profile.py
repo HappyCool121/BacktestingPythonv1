@@ -11,10 +11,11 @@ symbols = ["ES=F"]
 symbol_to_test = "ES=F"
 CONFIG = {
     "symbols": symbols,  # Pass the symbol as a list
-    "start_date": "2025-08-07",  # Using a single day for this example
-    "end_date": "2025-08-08",
+    "start_date": "2025-08-08",  # Using a single day for this example
+    "end_date": "2025-08-09",
     "interval": "30m",
-    "market_profile_type": 2
+    "market_profile_type": 2,
+    "iteration_choice": 2
 }
 
 pd.set_option('display.max_columns', None)
@@ -30,8 +31,9 @@ data_handler = DataHandler(
 price_data_dict = data_handler.get_data()
 df = price_data_dict[symbol_to_test]
 
-# --- Workflow Expansion ---
 
+
+# --- Workflow Expansion ---
 # Data Preparation and TPO Assignment
 # 1. create dataframe for TPO coordinates: -----------------------------------
 tpo_data_columns = ['datetime', 'price', 'tpo']
@@ -146,12 +148,60 @@ plt.show()
 
 """
 
-# 3. creating the coordinates of all points to be plotted: --------------------
-# assign: price, datetime (index), letter
+def calculate_market_profile_levels(tpo_df: pd.DataFrame):
 
-profile_type = 0
+    # Step 1: Get TPO counts for each price level
+    tpo_counts = tpo_df['price'].value_counts().sort_index()
 
+    # Step 2: Find the Point of Control (POC)
+    poc = tpo_counts.idxmax()
+
+    # Step 3: Calculate the Value Area (70% of TPOs)
+    total_tpos = len(tpo_df)
+    value_area_tpos_target = total_tpos * 0.7
+
+    # Start building the Value Area from the POC
+    value_area_prices = [poc]
+    current_value_area_tpos = tpo_counts[poc]
+
+    # Get price levels above and below the POC, sorted by proximity
+    prices_below = sorted([p for p in tpo_counts.index if p < poc], reverse=True)
+    prices_above = sorted([p for p in tpo_counts.index if p > poc])
+
+    # Iteratively expand the Value Area until 70% of TPOs are included
+    while current_value_area_tpos < value_area_tpos_target:
+        # Find the next price level to add (choose the one with more TPOs)
+        count_below = tpo_counts.get(prices_below[0], 0) if prices_below else 0
+        count_above = tpo_counts.get(prices_above[0], 0) if prices_above else 0
+
+        if count_below > count_above:
+            price_to_add = prices_below.pop(0)
+            current_value_area_tpos += count_below
+        else:
+            price_to_add = prices_above.pop(0)
+            current_value_area_tpos += count_above
+
+        value_area_prices.append(price_to_add)
+
+        # Break if we run out of prices to check
+        if not prices_below and not prices_above:
+            break
+
+    vah = max(value_area_prices)
+    val = min(value_area_prices)
+
+    dict = {
+        'poc': poc,
+        'vah': vah,
+        'val': val
+    }
+    return dict
+
+# Calculation and sketching of profiles --------------------
+
+# disintegrated profile
 if CONFIG["market_profile_type"] == 0:
+
     counter = 0
     for index, row in truncated_df.iterrows():
         high = row['high']
@@ -161,7 +211,7 @@ if CONFIG["market_profile_type"] == 0:
         # print(f'no of points for {symbol_to_test} at {index}: {price_range}')
         # print(f'current count: {counter}')
 
-        iteration_choice = 2 #plot every point by default
+        iteration_choice = CONFIG['iteration_choice'] #plot every point by default
         for number in range(price_range):
             # iterate through the number of price ticks
 
@@ -198,8 +248,8 @@ if CONFIG["market_profile_type"] == 0:
                     tpo_df.loc[counter, 'datetime'] = index  # using INDEX instead of DATETIME !!!
                     counter += 1
 
-    print(tpo_df.head)
-    print(tpo_df.tail)
+    # print(tpo_df.head)
+    # print(tpo_df.tail)
 
     fig, ax = plt.subplots(figsize=(10, 14))
 
@@ -229,8 +279,7 @@ if CONFIG["market_profile_type"] == 0:
     # plt.savefig('disintegratedmarketprofile.png', dpi=300, bbox_inches='tight')
     plt.show()
 
-# 3.5 creating coordinates of points to plot (market profile):
-
+# market profile
 elif CONFIG["market_profile_type"] == 1:
     # dict which has price levels as keys and number of points at that price level for teh value
     price_level_occupancy = {}
@@ -263,8 +312,8 @@ elif CONFIG["market_profile_type"] == 1:
             # Update the occupancy count for this price level
             price_level_occupancy[price] = x_pos + 1
 
-    print(tpo_df.head)
-    print(tpo_df.tail)
+    # print(tpo_df.head)
+    # print(tpo_df.tail)
 
     fig, ax = plt.subplots(figsize=(10, 14))
 
@@ -294,7 +343,7 @@ elif CONFIG["market_profile_type"] == 1:
     # plt.savefig('disintegratedmarketprofile.png', dpi=300, bbox_inches='tight')
     plt.show()
 
-
+# both profiles
 elif CONFIG["market_profile_type"] == 2:
     # --- Generate Data for Disintegrated Profile (Plot 1) ---
     disintegrated_tpo_df = pd.DataFrame(columns=['datetime', 'price', 'tpo'])
@@ -326,8 +375,16 @@ elif CONFIG["market_profile_type"] == 2:
             consolidated_tpo_df = pd.concat([consolidated_tpo_df, pd.DataFrame([new_row])], ignore_index=True)
             price_level_occupancy[price] = x_pos + 1
 
+    # get key levels before plotting
+    result = calculate_market_profile_levels(consolidated_tpo_df)
+    print(result)
+
+    poc = result['poc']
+    vah = result['vah']
+    val = result['val']
+
     # --- Create Side-by-Side Plot ---
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 14))  # 1 row, 2 columns
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 10))  # 1 row, 2 columns
 
     # Plot 1: Disintegrated Profile on the left axis (ax1)
     for index, row in disintegrated_tpo_df.iterrows():
@@ -339,6 +396,11 @@ elif CONFIG["market_profile_type"] == 2:
     ax1.set_xlim(-1, disintegrated_tpo_df['datetime'].max() + 1)
     ax1.set_ylim(truncated_df['low'].min() - 1, truncated_df['high'].max() + 1)
 
+    ax1.axhline(poc, color='red', linestyle='--', linewidth=2, label=f'POC: {poc}')
+    ax1.axhline(vah, color='green', linestyle=':', linewidth=2, label=f'VAH: {vah}')
+    ax1.axhline(val, color='blue', linestyle=':', linewidth=2, label=f'VAL: {val}')
+    ax1.legend()
+
     # Plot 2: Consolidated Profile on the right axis (ax2)
     for index, row in consolidated_tpo_df.iterrows():
         ax2.text(x=row['datetime'], y=row['price'], s=row['tpo'], ha='center', va='center', fontsize=10)
@@ -349,5 +411,13 @@ elif CONFIG["market_profile_type"] == 2:
     ax2.set_xlim(-1, consolidated_tpo_df['datetime'].max() + 1)
     ax2.set_ylim(truncated_df['low'].min() - 1, truncated_df['high'].max() + 1)
 
+    ax2.axhline(poc, color='red', linestyle='--', linewidth=2, label=f'POC: {poc}')
+    ax2.axhline(vah, color='green', linestyle=':', linewidth=2, label=f'VAH: {vah}')
+    ax2.axhline(val, color='blue', linestyle=':', linewidth=2, label=f'VAL: {val}')
+    ax2.legend()
+
     plt.tight_layout()  # Adjusts plots to prevent overlap
     plt.show()
+
+
+
