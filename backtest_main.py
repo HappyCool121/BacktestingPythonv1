@@ -18,7 +18,7 @@ if __name__ == '__main__':
     symbol_to_test = "GC=F"
     CONFIG = {
         "symbols": symbols, # Pass the symbol as a list
-        "start_date": "2020-01-01",
+        "start_date": "2015-01-01",
         "end_date": "2025-06-25",
         "interval": "1d",
         "initial_capital": 10000.0,

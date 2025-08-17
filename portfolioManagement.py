@@ -137,7 +137,7 @@ class PortfolioManagement:
             }
 
             self.open_trades.append(Trades.create_from_dict(new_trade_data))
-            print("Trade created, ", new_trade_data)
+            # print("Trade created, ", new_trade_data) # logging purposes
 
     def close_trade(self, trade: Trades, exit_date: pd.Timestamp, exit_price: float, exit_reason: str):
         """

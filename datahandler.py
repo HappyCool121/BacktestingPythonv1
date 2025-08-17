@@ -44,25 +44,34 @@ class DataHandler:
         for symbol in self.symbols:
             print(f"Fetching data for {symbol} from {self.start_date} to {self.end_date}...")
 
-            # Download data from yfinance
             df = yf.download(symbol, start=self.start_date, end=self.end_date, interval=self.interval)
 
             if df.empty:
                 print(f"Warning: No data found for symbol {symbol}. Skipping.")
-                continue  # Skip to the next symbol
+                continue
 
-            # 1. Reset the index to make the 'Date' index a regular column
             df.reset_index(inplace=True)
 
-            # 2. Select and rename columns to the desired format
-            df = df[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']]
+            # --- FIX: Check for 'Datetime' or 'Date' column ---
+            # This makes the function flexible for intraday and daily data.
+            date_col_name = ''
+            if 'Datetime' in df.columns:
+                date_col_name = 'Datetime'
+            elif 'Date' in df.columns:
+                date_col_name = 'Date'
+            else:
+                print(f"Warning: No 'Date' or 'Datetime' column found for {symbol}. Skipping.")
+                continue
+
+            # Select and rename columns to a standard format
+            df = df[[date_col_name, 'Open', 'High', 'Low', 'Close', 'Volume']]
             df.columns = ['date', 'open', 'high', 'low', 'close', 'volume']
-            # df.set_index('date', inplace=True) # setting index as datetime
+
+            print(f'processed data for {symbol} from {self.start_date} to {self.end_date}...')
             print(df.head())
+            print(df.tail())
 
-            # 3. Add the cleaned DataFrame to our dictionary
             all_data[symbol] = df
-
             print(f"Data for {symbol} processed successfully.")
 
         return all_data
