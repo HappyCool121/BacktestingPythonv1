@@ -11,10 +11,10 @@ symbols = ["ES=F"]
 symbol_to_test = "ES=F"
 CONFIG = {
     "symbols": symbols,  # Pass the symbol as a list
-    "start_date": "2025-08-08",  # Using a single day for this example
-    "end_date": "2025-08-09",
+    "start_date": "2025-08-15",  # Using a single day for this example
+    "end_date": "2025-08-16",
     "interval": "30m",
-    "market_profile_type": 2,
+    "market_profile_type": 3,
     "iteration_choice": 2
 }
 
@@ -418,6 +418,85 @@ elif CONFIG["market_profile_type"] == 2:
 
     plt.tight_layout()  # Adjusts plots to prevent overlap
     plt.show()
+
+
+elif CONFIG["market_profile_type"] == 3:
+    # --- Generate Data for Disintegrated Profile (Plot 1) ---
+    disintegrated_tpo_df = pd.DataFrame(columns=['datetime', 'price', 'tpo'])
+    counter = 0
+    for index, row in truncated_df.iterrows():
+        high = row['high']
+        low = row['low']
+        tick_size = 0.25
+        price_range = int((high - low) / tick_size)
+        low = math.ceil(low)
+        for number in range(price_range):
+            if number % 4 == 0 and low < high:
+                new_row = {'datetime': index, 'price': low + (number * tick_size), 'tpo': row['tpo']}
+                disintegrated_tpo_df = pd.concat([disintegrated_tpo_df, pd.DataFrame([new_row])], ignore_index=True)
+
+    # --- Generate Data for Consolidated Profile (Plot 2) ---
+    consolidated_tpo_df = pd.DataFrame(columns=['datetime', 'price', 'tpo'])
+    price_level_occupancy = {}
+    for index, row in truncated_df.iterrows():
+        high = row['high']
+        low = row['low']
+        tick_size = 1.0
+        low = math.ceil(low)
+        price_points = np.arange(low, high, tick_size)
+        for price in price_points:
+            price = round(price / tick_size) * tick_size
+            x_pos = price_level_occupancy.get(price, 0)
+            new_row = {'datetime': x_pos, 'price': price, 'tpo': row['tpo']}
+            consolidated_tpo_df = pd.concat([consolidated_tpo_df, pd.DataFrame([new_row])], ignore_index=True)
+            price_level_occupancy[price] = x_pos + 1
+
+    # get key levels before plotting
+    result = calculate_market_profile_levels(consolidated_tpo_df)
+    print(result)
+
+    poc = result['poc']
+    vah = result['vah']
+    val = result['val']
+
+    # --- Create Side-by-Side Plot ---
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8, 10))  # 1 row, 2 columns
+
+    # Plot 1: Disintegrated Profile on the left axis (ax1)
+    for index, row in disintegrated_tpo_df.iterrows():
+        ax1.text(x=row['datetime'], y=row['price'], s=row['tpo'], ha='center', va='center', fontsize=10)
+    ax1.set_title("Disintegrated TPO Chart")
+    ax1.set_xlabel("Time Period Index")
+    ax1.set_ylabel("Price")
+    ax1.grid(True, linestyle='--', alpha=0.5)
+    ax1.set_xlim(-1, disintegrated_tpo_df['datetime'].max() + 1)
+    ax1.set_ylim(truncated_df['low'].min() - 1, truncated_df['high'].max() + 1)
+
+    ax1.axhspan(val, vah, color='gray', alpha=0.3, label='Value Area (70%)')
+    ax1.axhline(poc, color='red', linestyle='--', linewidth=2, label=f'POC: {poc}')
+    ax1.axhline(vah, color='green', linestyle=':', linewidth=2, label=f'VAH: {vah}')
+    ax1.axhline(val, color='blue', linestyle=':', linewidth=2, label=f'VAL: {val}')
+    ax1.legend()
+
+    # Plot 2: Consolidated Profile on the right axis (ax2)
+    for index, row in consolidated_tpo_df.iterrows():
+        ax2.scatter(x=row['datetime'], y=row['price'], marker='s', s=150, c='blue')
+    ax2.set_title("Consolidated Market Profile")
+    ax2.set_xlabel("TPO Count")
+    ax2.set_ylabel("Price")
+    ax2.grid(True, linestyle='--', alpha=0.5)
+    ax2.set_xlim(-1, consolidated_tpo_df['datetime'].max() + 1)
+    ax2.set_ylim(truncated_df['low'].min() - 1, truncated_df['high'].max() + 1)
+
+    ax2.axhspan(val, vah, color='gray', alpha=0.3, label='Value Area (70%)')
+    ax2.axhline(poc, color='red', linestyle='--', linewidth=2, label=f'POC: {poc}')
+    ax2.axhline(vah, color='green', linestyle=':', linewidth=2, label=f'VAH: {vah}')
+    ax2.axhline(val, color='blue', linestyle=':', linewidth=2, label=f'VAL: {val}')
+    ax2.legend()
+
+    plt.tight_layout()  # Adjusts plots to prevent overlap
+    plt.show()
+
 
 
 
