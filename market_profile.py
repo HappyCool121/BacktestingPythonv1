@@ -1,4 +1,5 @@
 # this file is an exploration of market profile, as well as market profile concepts
+from typing import Callable
 
 from datahandler import DataHandler
 import pandas as pd
@@ -14,7 +15,7 @@ CONFIG = {
     "start_date": "2025-08-15",  # Using a single day for this example
     "end_date": "2025-08-16",
     "interval": "30m",
-    "market_profile_type": 4,
+    "market_profile_type": 6,
     "iteration_choice": 2
 }
 
@@ -31,8 +32,6 @@ data_handler = DataHandler(
 price_data_dict = data_handler.get_data()
 df = price_data_dict[symbol_to_test]
 
-
-
 # --- Workflow Expansion ---
 # Data Preparation and TPO Assignment
 # 1. create dataframe for TPO coordinates: -----------------------------------
@@ -40,25 +39,28 @@ tpo_data_columns = ['datetime', 'price', 'tpo']
 tpo_df = pd.DataFrame(columns=tpo_data_columns)
 print(tpo_df)
 
-# 2. Truncate dataframe to only include trading hours:-------------------------
+# 2. Separate into regular trading hours and overnight trading hours :-------------------------
 start_time = CONFIG["start_date"] + ' 09:30+00:00'
 end_time = CONFIG["start_date"] + ' 16:00+00:00'
-print(start_time, end_time)
+# print(start_time, end_time)
 
 truncated_df = df[(df['date'] >= start_time) & (df['date'] <= end_time)]
 truncated_df = truncated_df.reset_index(drop=True)
+outside_hours_df = df[(df['date'] < start_time) | (df['date'] > end_time)]
+outside_hours_df = outside_hours_df.reset_index(drop=True)
 
 print("TRUNCATED DATA, trading hours")
 print(truncated_df)
+print("OUTSIDE HOURS")
+print(outside_hours_df)
 
-# 3. assign letters to each period
-truncated_df['tpo'] = ''
-tpo_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-for i in range(len(truncated_df)):
-    truncated_df.loc[truncated_df.index[i], 'tpo'] = tpo_letters[i]
-
-print('df after assigning TPOs')
-print(truncated_df[['date','tpo']])
+# overall flow of the code:
+# 1. get the data, full day intraday data, interval of 30 mins
+# 2. separate the data either into regular trading hours or overnight trading hours
+# 3. assign letters to the truncated time price data
+# 4. create the point dataframe, either for the consolidated or disintegrated market profile
+# 5. plot the points
+# 5.5. plot value area high value area low
 
 """
 workflow on creating the market profile:
@@ -197,10 +199,200 @@ def calculate_market_profile_levels(tpo_df: pd.DataFrame):
     }
     return dict
 
-# Calculation and sketching of profiles --------------------
+def create_market_profile_coordinates(df: pd.DataFrame):
+
+    tpo_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    df['tpo'] = [tpo_letters[i] for i in range(len(df))]
+
+    # --- 3. Generate Data for Disintegrated Profile ---
+    disintegrated_rows = []
+    for index, row in df.iterrows():
+        high, low, tpo_letter = row['high'], row['low'], row['tpo']
+        tick_size = 0.25
+        price_range = int((high - low) / tick_size)
+        low = math.ceil(low)
+        for number in range(price_range):
+            if number % 4 == 0 and low < high:
+                price = low + (number * tick_size)
+                disintegrated_rows.append({'datetime': index, 'price': price, 'tpo': tpo_letter})
+    disintegrated_tpo_df = pd.DataFrame(disintegrated_rows)
+
+    # --- 4. Generate Data for Consolidated Profile ---
+    consolidated_rows = []
+    price_level_occupancy = {}
+    for index, row in df.iterrows():
+        high, low, tpo_letter = row['high'], row['low'], row['tpo']
+        tick_size = 1.0
+        low = math.ceil(low)
+        price_points = np.arange(low, high, tick_size)
+        for price in price_points:
+            price = round(price / tick_size) * tick_size
+            x_pos = price_level_occupancy.get(price, 0)
+            consolidated_rows.append({'datetime': x_pos, 'price': price, 'tpo': tpo_letter})
+            price_level_occupancy[price] = x_pos + 1
+    consolidated_tpo_df = pd.DataFrame(consolidated_rows)
+
+    dict = {
+        'consolidated_tpo_df': consolidated_tpo_df,
+        'disintegrated_tpo_df': disintegrated_tpo_df
+    }
+
+    return dict
+
+def get_key_values(consolidated_tpo_df: pd.DataFrame, disintegrated_tpo_df: pd.DataFrame, calculate_market_profile_levels):
+    # --- 5. Get key levels before plotting ---
+    results = calculate_market_profile_levels(consolidated_tpo_df)
+    poc = results['poc']
+    vah = results['vah']
+    val = results['val']
+
+def plot_coordinates (disintegrated_tpo_df: pd.DataFrame, consolidated_tpo_df: pd.DataFrame, type: int, colourVAL: str = 'green'):
+    # --- 6. Create Side-by-Side Plot ---
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7, 10), sharey=True)
+
+    # Plot 1: Disintegrated Profile
+    for index, row in disintegrated_tpo_df.iterrows():
+        ax1.text(x=row['datetime'], y=row['price'], s=row['tpo'], ha='center', va='center', fontsize=10)
+    ax1.set_title("Disintegrated TPO Chart")
+    ax1.set_xlabel("Time Period Index")
+    ax1.set_ylabel("Price")
+    ax1.grid(True, linestyle='--', alpha=0.5)
+    ax1.set_xlim(-1, disintegrated_tpo_df['datetime'].max() + 1)
+    ax1.set_ylim(df['low'].min() - 1, df['high'].max() + 1)
+    ax1.axhspan(val, vah, color='gray', alpha=0.2)
+    ax1.axhline(poc, color='red', linestyle='--', linewidth=2, label=f'POC: {poc}')
+    ax1.axhline(vah, color='green', linestyle=':', linewidth=2, label=f'VAH: {vah}')
+    ax1.axhline(val, color='blue', linestyle=':', linewidth=2, label=f'VAL: {val}')
+    ax1.legend()
+
+    # Plot 2: Consolidated Profile
+    for index, row in consolidated_tpo_df.iterrows():
+        color = 'green' if val <= row['price'] <= vah else 'blue'
+        ax2.scatter(x=row['datetime'], y=row['price'], marker='s', s=100, c=color)
+    ax2.set_title("Consolidated Market Profile")
+    ax2.set_xlabel("TPO Count")
+    ax2.grid(True, linestyle='--', alpha=0.5)
+    ax2.set_xlim(-1, consolidated_tpo_df['datetime'].max() + 1)
+    ax2.axhspan(val, vah, color='gray', alpha=0.2, label='Value Area (70%)')
+    ax2.axhline(poc, color='red', linestyle='--', linewidth=2, label=f'POC: {poc}')
+    ax2.axhline(vah, color='green', linestyle=':', linewidth=2, label=f'VAH: {vah}')
+    ax2.axhline(val, color='blue', linestyle=':', linewidth=2, label=f'VAL: {val}')
+    ax2.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_market_profile(ohlc_df: pd.DataFrame, trading_date: str, calculate_market_profile_levels: bool = True):
+    """
+    Generates and displays a side-by-side Disintegrated and Consolidated Market Profile chart.
+
+    Args:
+        ohlc_df (pd.DataFrame): The input DataFrame with OHLC data and a 'date' column.
+        trading_date (str): The date to analyze in 'YYYY-MM-DD' format.
+        calculate_market_profile_levels (function): The helper function to calculate POC, VAH, and VAL.
+    """
+    # --- 1. Truncate DataFrame to the specified trading day ---
+    start_time = trading_date + ' 09:30+00:00'
+    end_time = trading_date + ' 16:00+00:00'
+
+    truncated_df = ohlc_df[(ohlc_df['date'] >= start_time) & (ohlc_df['date'] <= end_time)]
+    truncated_df = truncated_df.reset_index(drop=True)
+
+    # create overnight trading hours data:
+    outside_hours_df = df[(df['date'] < start_time) | (df['date'] > end_time)]
+
+    print("TRUNCATED DATA, trading hours")
+    print(truncated_df)
+
+    print("OUTSIDE HOURS")
+    print(outside_hours_df)
+
+    # --- 2. Assign TPO letters ---
+    tpo_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    truncated_df['tpo'] = [tpo_letters[i] for i in range(len(truncated_df))]
+
+    # --- 3. Generate Data for Disintegrated Profile ---
+    disintegrated_rows = []
+    for index, row in truncated_df.iterrows():
+        high, low, tpo_letter = row['high'], row['low'], row['tpo']
+        tick_size = 0.25
+        price_range = int((high - low) / tick_size)
+        low = math.ceil(low)
+        for number in range(price_range):
+            if number % 4 == 0 and low < high:
+                price = low + (number * tick_size)
+                disintegrated_rows.append({'datetime': index, 'price': price, 'tpo': tpo_letter})
+    disintegrated_tpo_df = pd.DataFrame(disintegrated_rows)
+
+    # --- 4. Generate Data for Consolidated Profile ---
+    consolidated_rows = []
+    price_level_occupancy = {}
+    for index, row in truncated_df.iterrows():
+        high, low, tpo_letter = row['high'], row['low'], row['tpo']
+        tick_size = 1.0
+        low = math.ceil(low)
+        price_points = np.arange(low, high, tick_size)
+        for price in price_points:
+            price = round(price / tick_size) * tick_size
+            x_pos = price_level_occupancy.get(price, 0)
+            consolidated_rows.append({'datetime': x_pos, 'price': price, 'tpo': tpo_letter})
+            price_level_occupancy[price] = x_pos + 1
+    consolidated_tpo_df = pd.DataFrame(consolidated_rows)
+
+    # --- 5. Get key levels before plotting ---
+    results = calculate_market_profile_levels(consolidated_tpo_df)
+    poc = results['poc']
+    vah = results['vah']
+    val = results['val']
+
+    # --- 6. Create Side-by-Side Plot ---
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7, 10), sharey=True)
+
+    # Plot 1: Disintegrated Profile
+    for index, row in disintegrated_tpo_df.iterrows():
+        ax1.text(x=row['datetime'], y=row['price'], s=row['tpo'], ha='center', va='center', fontsize=10)
+    ax1.set_title("Disintegrated TPO Chart")
+    ax1.set_xlabel("Time Period Index")
+    ax1.set_ylabel("Price")
+    ax1.grid(True, linestyle='--', alpha=0.5)
+    ax1.set_xlim(-1, disintegrated_tpo_df['datetime'].max() + 1)
+    ax1.set_ylim(truncated_df['low'].min() - 1, truncated_df['high'].max() + 1)
+    ax1.axhspan(val, vah, color='gray', alpha=0.2)
+    ax1.axhline(poc, color='red', linestyle='--', linewidth=2, label=f'POC: {poc}')
+    ax1.axhline(vah, color='green', linestyle=':', linewidth=2, label=f'VAH: {vah}')
+    ax1.axhline(val, color='blue', linestyle=':', linewidth=2, label=f'VAL: {val}')
+    ax1.legend()
+
+    # Plot 2: Consolidated Profile
+    for index, row in consolidated_tpo_df.iterrows():
+        color = 'green' if val <= row['price'] <= vah else 'blue'
+        ax2.scatter(x=row['datetime'], y=row['price'], marker='s', s=100, c=color)
+    ax2.set_title("Consolidated Market Profile")
+    ax2.set_xlabel("TPO Count")
+    ax2.grid(True, linestyle='--', alpha=0.5)
+    ax2.set_xlim(-1, consolidated_tpo_df['datetime'].max() + 1)
+    ax2.axhspan(val, vah, color='gray', alpha=0.2, label='Value Area (70%)')
+    ax2.axhline(poc, color='red', linestyle='--', linewidth=2, label=f'POC: {poc}')
+    ax2.axhline(vah, color='green', linestyle=':', linewidth=2, label=f'VAH: {vah}')
+    ax2.axhline(val, color='blue', linestyle=':', linewidth=2, label=f'VAL: {val}')
+    ax2.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+# -------------------- Calculation and sketching of profiles --------------------
 
 # disintegrated profile
 if CONFIG["market_profile_type"] == 0:
+
+    truncated_df['tpo'] = ''
+    tpo_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    for i in range(len(truncated_df)):
+        truncated_df.loc[truncated_df.index[i], 'tpo'] = tpo_letters[i]
+
+    print('df after assigning TPOs')
+    print(truncated_df[['date', 'tpo']])
 
     counter = 0
     for index, row in truncated_df.iterrows():
@@ -279,8 +471,17 @@ if CONFIG["market_profile_type"] == 0:
     # plt.savefig('disintegratedmarketprofile.png', dpi=300, bbox_inches='tight')
     plt.show()
 
-# market profile
+# consolidated market profile
 elif CONFIG["market_profile_type"] == 1:
+
+    truncated_df['tpo'] = ''
+    tpo_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    for i in range(len(truncated_df)):
+        truncated_df.loc[truncated_df.index[i], 'tpo'] = tpo_letters[i]
+
+    print('df after assigning TPOs')
+    print(truncated_df[['date', 'tpo']])
+
     # dict which has price levels as keys and number of points at that price level for teh value
     price_level_occupancy = {}
 
@@ -345,6 +546,15 @@ elif CONFIG["market_profile_type"] == 1:
 
 # both profiles
 elif CONFIG["market_profile_type"] == 2:
+
+    truncated_df['tpo'] = ''
+    tpo_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    for i in range(len(truncated_df)):
+        truncated_df.loc[truncated_df.index[i], 'tpo'] = tpo_letters[i]
+
+    print('df after assigning TPOs')
+    print(truncated_df[['date', 'tpo']])
+
     # --- Generate Data for Disintegrated Profile (Plot 1) ---
     disintegrated_tpo_df = pd.DataFrame(columns=['datetime', 'price', 'tpo'])
     counter = 0
@@ -419,8 +629,17 @@ elif CONFIG["market_profile_type"] == 2:
     plt.tight_layout()  # Adjusts plots to prevent overlap
     plt.show()
 
-
+# both profiles side by side, with POC, VAL, VAH
 elif CONFIG["market_profile_type"] == 3:
+
+    truncated_df['tpo'] = ''
+    tpo_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    for i in range(len(truncated_df)):
+        truncated_df.loc[truncated_df.index[i], 'tpo'] = tpo_letters[i]
+
+    print('df after assigning TPOs')
+    print(truncated_df[['date', 'tpo']])
+
     # --- Generate Data for Disintegrated Profile (Plot 1) ---
     disintegrated_tpo_df = pd.DataFrame(columns=['datetime', 'price', 'tpo'])
     counter = 0
@@ -497,8 +716,17 @@ elif CONFIG["market_profile_type"] == 3:
     plt.tight_layout()  # Adjusts plots to prevent overlap
     plt.show()
 
-
+# coloured TPOs
 elif CONFIG["market_profile_type"] == 4:
+
+    truncated_df['tpo'] = ''
+    tpo_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    for i in range(len(truncated_df)):
+        truncated_df.loc[truncated_df.index[i], 'tpo'] = tpo_letters[i]
+
+    print('df after assigning TPOs')
+    print(truncated_df[['date', 'tpo']])
+
     # --- Generate Data for Disintegrated Profile (Plot 1) ---
     disintegrated_tpo_df = pd.DataFrame(columns=['datetime', 'price', 'tpo'])
     for index, row in truncated_df.iterrows():
@@ -535,7 +763,7 @@ elif CONFIG["market_profile_type"] == 4:
     val = results['val']
 
     # --- Create Side-by-Side Plot ---
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 10), sharey=True)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(6, 10), sharey=True)
 
     # Plot 1: Disintegrated Profile on the left axis (ax1)
     for index, row in disintegrated_tpo_df.iterrows():
@@ -574,3 +802,14 @@ elif CONFIG["market_profile_type"] == 4:
 
     plt.tight_layout()
     plt.show()
+
+elif CONFIG["market_profile_type"] == 5:
+    plot_market_profile(df, CONFIG["start_date"], calculate_market_profile_levels)
+
+elif CONFIG["market_profile_type"] == 6:
+    tpo_df_dicts = create_market_profile_coordinates(truncated_df)
+    results = calculate_market_profile_levels(tpo_df_dicts['consolidated_tpo_df'])
+    poc = results['poc']
+    vah = results['vah']
+    val = results['val']
+    plot_coordinates(tpo_df_dicts['consolidated_tpo_df'], tpo_df_dicts['disintegrated_tpo_df'], 1)
