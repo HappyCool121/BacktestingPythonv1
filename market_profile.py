@@ -66,14 +66,14 @@ def get_data(CONFIG: dict) -> dict:
     price_data_dict = data_handler.get_data()
     df = price_data_dict[symbol_to_test] # this is all time price data obtained
 
-    # we will be iterating everyday, the start and end times can be calculated within the iteration itself,
-    # so for the regular trading hours, we will first handle this at the start of the loop, since it is the
-    # most straightforward
-    # however, for overnight, the start will be of the current day, but the end time will be in the following
-    # day. so do exercise caution
+    # find number of days:
+    start_date = datetime.strptime(CONFIG["start_date"], "%Y-%m-%d")
+    end_date = datetime.strptime(CONFIG["end_date"], "%Y-%m-%d")
+    number_of_days = (end_date - start_date).days
+    print(f'Number of days between {start_date} and {end_date}: {number_of_days}')
 
     current_day_count = 0 # start with d = 0
-    number_of_days = 4 # placeholder
+    dict = {}
 
     for i in range(number_of_days):
 
@@ -104,22 +104,16 @@ def get_data(CONFIG: dict) -> dict:
         print(f'CHECK on_date: {on_start}, format: {type(on_start)}')
         print(f'CHECK on_date: {on_end}, format: {type(on_end)}')
 
+        dict.update({rth_start + ' -RTH': truncate_df(df, rth_start, rth_end)})
+        dict.update({on_start + ' -OVERNIGHT': truncate_df(df, on_start, on_end)})
+
         current_day_count += 1
 
 
-    # 2. what i need to do: iterate through the dates, since the times are good to go
-    df_rth_first_day = truncate_df(df, rth_start, rth_end)
-
-    # print('FUNCTION TRY ----------------------------')
-    # print(df_rth_first_day.head())
-    # print(df_rth_first_day.tail())
-
-    dict = {
-        "first day rth": df_rth_first_day
-    }
     return dict
 
 results = get_data(CONFIG)
+print(results)
 
 #
 # # 1. get the session times:
