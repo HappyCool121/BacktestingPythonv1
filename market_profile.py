@@ -1,23 +1,146 @@
 # this file is an exploration of market profile, as well as market profile concepts
-from typing import Callable
+from statsmodels.graphics.tukeyplot import results
 
 from datahandler import DataHandler
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import math
+from datetime import datetime, timedelta
 
-# get data
+# key things to change at the end of today:
+# finalize on separation of trading hours - can we obtain data by time? that would be ideal
+# ideally: input a single start and end date, we will obtain data from the regular trading
+# hours of the start date and end at the overnigh trading hours on the end date (subject to change)
+
+# finalize on functions to actually calculate and draw the profiles
+# internal get data function: input ticker and start/end date, do data cleaning
+# separate by days and session: so each day has two sessions, maybe store them in a dict?
+
+# assign the letters, and assign coordinates to plot the points, for both consolidated and
+# disintegrated profile, we will focus on plotting the single day for now
+
+# plot the actual graphs
+
+# CONFIG
+
+
 symbols = ["ES=F"]
 symbol_to_test = "ES=F"
 CONFIG = {
     "symbols": symbols,  # Pass the symbol as a list
-    "start_date": "2025-08-15",  # Using a single day for this example
-    "end_date": "2025-08-16",
+    "start_date": "2025-08-11",  # Using a single day for this example
+    "end_date": "2025-08-14",
     "interval": "30m",
-    "market_profile_type": 6,
+    "market_profile_type": 10,
     "iteration_choice": 2
 }
+
+def truncate_df(df: pd.DataFrame, start_datetime: str, end_datetime: str) -> pd.DataFrame:
+    """
+    this is a helper function that spits out a truncated dataframe according to the required session
+    """
+    new_df = df[(df['date'] >= start_datetime) & (df['date'] <= end_datetime)]
+
+    return new_df
+
+
+def get_data(CONFIG: dict) -> dict:
+    """
+    this function will obtain intraday time price data from the start to the end date,
+    beginning with the start date's regular trading hours (0930) and end at the end dates
+    overnight trading hours (0900 next day). the function will also do the necessary data
+    cleaning as well as separation into overnight and regular trading hours. the output will
+    be a dict, with the date, as well as the session as the key, and a pandas dataframe as the value
+
+    since the datahandler method starts at 0400, we will be starting on the regular trading hours
+    on the first day and ending with overnight trading hours on the second last day (according to the
+    input)
+    """
+    data_handler = DataHandler(
+        symbols=CONFIG["symbols"],
+        start_date=CONFIG["start_date"],
+        end_date=CONFIG["end_date"],
+        interval=CONFIG["interval"]
+    )
+    price_data_dict = data_handler.get_data()
+    df = price_data_dict[symbol_to_test] # this is all time price data obtained
+
+    # we will be iterating everyday, the start and end times can be calculated within the iteration itself,
+    # so for the regular trading hours, we will first handle this at the start of the loop, since it is the
+    # most straightforward
+    # however, for overnight, the start will be of the current day, but the end time will be in the following
+    # day. so do exercise caution
+
+    current_day_count = 0 # start with d = 0
+    number_of_days = 4 # placeholder
+
+    for i in range(number_of_days):
+
+        # establish beginning date
+        start_date = CONFIG["start_date"]
+        start_date_datetime = datetime.strptime(start_date, "%Y-%m-%d")
+        #print(f'CHECK start date: {start_date_datetime}, format: {type(start_date_datetime)}')
+
+        # calculate day at current iteration, as well as next day, for overnight hours
+        current_day = start_date_datetime + pd.Timedelta(days=current_day_count)
+        #print(f'CHECK current date: {current_day}, format: {type(current_day)}')
+
+        next_day = current_day + pd.Timedelta(days=1) # increment by one
+        #print(f'CHECK following date: {next_day}, format: {type(next_day)}')
+
+        # convert back to string as needed
+        current_day_str = current_day.strftime("%Y-%m-%d")
+        next_day_str = next_day.strftime("%Y-%m-%d")
+
+        rth_start = current_day_str + ' 09:30+00:00'
+        rth_end = current_day_str + ' 16:00+00:00'
+
+        on_start = current_day_str + ' 16:00+00:00'
+        on_end = next_day_str + ' 09:30+00:00'
+
+        print(f'CHECK rth date: {rth_start}, format: {type(rth_start)}')
+        print(f'CHECK rth date: {rth_end}, format: {type(rth_end)}')
+        print(f'CHECK on_date: {on_start}, format: {type(on_start)}')
+        print(f'CHECK on_date: {on_end}, format: {type(on_end)}')
+
+        current_day_count += 1
+
+
+    # 2. what i need to do: iterate through the dates, since the times are good to go
+    df_rth_first_day = truncate_df(df, rth_start, rth_end)
+
+    # print('FUNCTION TRY ----------------------------')
+    # print(df_rth_first_day.head())
+    # print(df_rth_first_day.tail())
+
+    dict = {
+        "first day rth": df_rth_first_day
+    }
+    return dict
+
+results = get_data(CONFIG)
+
+#
+# # 1. get the session times:
+#
+# current_day = CONFIG["start_date"]
+# current_day_datetime = datetime.strptime(current_day, "%Y-%m-%d")
+# # print(f'CHECK current_day_datetime: {current_day_datetime}, format: {type(current_day_datetime)}')
+# # well have to convert back to string:
+#
+# # lets try and increment by one:
+# next_day = current_day_datetime + timedelta(days=1)
+# next_day_str = next_day.strftime("%Y-%m-%d")
+# # print(f'CHECK back to string: {next_day_str}, format: {type(next_day_str)}')
+#
+# rth_start = CONFIG["start_date"] + ' 09:30+00:00'
+# rth_end = CONFIG["start_date"] + ' 16:00+00:00'
+#
+# on_start = CONFIG["start_date"] + ' 16:00+00:00'
+# on_end = CONFIG["start_date"] + ' 09:30+00:00'
+
+# GET DATA FUNCTION:
 
 pd.set_option('display.max_columns', None)
 
@@ -61,94 +184,6 @@ print(outside_hours_df)
 # 4. create the point dataframe, either for the consolidated or disintegrated market profile
 # 5. plot the points
 # 5.5. plot value area high value area low
-
-"""
-workflow on creating the market profile:
-
-first things first we will draw bar like charts, but with the tpo letters;
-so the x axis would be hte datetime values, and the y axis would be the letters,
-a single period will include letters populated in between the high and low of that period
-
-1. iterate through the dataframe 
-2. at an iteration of one period, we will determine the high and low, as well as the letter
-3. then we would iterate through the range according to a given tick, and create points at which
-    the letter representing that period will fill
-4. for that period, we have a list of coordinates for that particular letter to fill
-5. repeat for all periods
-6. plot the letters according to these coordinates
-
-*as of right now, we will be ignoring the POC, value area, as well as opening balance
-
-
-so basically what i need is a dataframe containing: price, time (datetime, but more specifically time)
-and the letter corresponding to the period
-
-so to summarize the problem: 
-
-given a time price data, which include OHLC values with an interval of 30m, create a market profile diagram 
-each period (interval of 30 minutes) is assigned a letter, ranging from ABCD.......xyz, and for each period
-the letters assigned to that period will populate that period from the low to the high of that period. 
-
-one way we can approach this problem is to create a simple dataframe containing every single point of the market 
-profile, which means each letter has to be accounted for, and the data will be represented in the form of a dataframe
-with 3 different columns; datetime, price point, and letter. this would be a comically large dataframe, but it 
-would work anyway (i think)
-
-how would we go about doing this?
-
-first iterate through the dataframe, 
-for each period, find the high - low, and divide by the tick size to determine how many points for this specific range
-then we iterate through the range, and add it to the main coordinate dataframe.
-repeat for all periods
-
- 
-
-"""
-"""
-# trying to plot:
-
-# --- Data Preparation ---
-data = {
-    'x_val': [1, 2, 3, 4, 5, 6, 7, 8],
-    'y_val': [5, 4, 8, 6, 9, 7, 2, 3],
-    'category': ['A', 'B', 'A', 'B', 'A', 'B', 'A', 'B']
-}
-df = pd.DataFrame(data)
-
-print('trying to plot this')
-print(df)
-
-# --- Plotting Setup ---
-fig, ax = plt.subplots(figsize=(8, 6))
-
-# Define a dictionary to map categories to markers 📌
-# 'o' is a circle, '^' is a triangle up, 's' is a square, etc.
-markers = {'A': 'o', 'B': '^'}
-colors = {'A': 'blue', 'B': 'green'}
-
-# --- Loop and Plot ---
-# Group by 'category' and loop through each group
-for category, group_df in df.groupby('category'):
-    ax.scatter(
-        group_df['x_val'],
-        group_df['y_val'],
-        marker=markers[category],
-        color=colors[category],
-        label=f'Category {category}',
-        s=100  # s is the marker size
-    )
-
-# --- Customization ---
-ax.set_title("Scatter Plot with Different Markers per Category")
-ax.set_xlabel("X Value")
-ax.set_ylabel("Y Value")
-ax.legend()
-ax.grid(True, linestyle='--', alpha=0.6)
-
-# --- Show the Plot ---
-plt.show()
-
-"""
 
 def calculate_market_profile_levels(tpo_df: pd.DataFrame):
 
