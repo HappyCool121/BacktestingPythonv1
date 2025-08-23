@@ -36,14 +36,15 @@ CONFIG = {
     "iteration_choice": 2
 }
 
+
 def truncate_df(df: pd.DataFrame, start_datetime: str, end_datetime: str) -> pd.DataFrame:
     """
     this is a helper function that spits out a truncated dataframe according to the required session
     """
     new_df = df[(df['date'] >= start_datetime) & (df['date'] <= end_datetime)]
+    new_df = new_df.reset_index()
 
     return new_df
-
 
 def get_data(CONFIG: dict) -> dict:
     """
@@ -64,7 +65,7 @@ def get_data(CONFIG: dict) -> dict:
         interval=CONFIG["interval"]
     )
     price_data_dict = data_handler.get_data()
-    df = price_data_dict[symbol_to_test] # this is all time price data obtained
+    df = price_data_dict[symbol_to_test]  # this is all time price data obtained
 
     # find number of days:
     start_date = datetime.strptime(CONFIG["start_date"], "%Y-%m-%d")
@@ -72,11 +73,10 @@ def get_data(CONFIG: dict) -> dict:
     number_of_days = (end_date - start_date).days
     print(f'Number of days between {start_date} and {end_date}: {number_of_days}')
 
-    current_day_count = 0 # start with d = 0
+    current_day_count = 0  # start with d = 0
     dict = {}
 
     for i in range(number_of_days):
-
         # establish beginning date
         start_date = CONFIG["start_date"]
         start_date_datetime = datetime.strptime(start_date, "%Y-%m-%d")
@@ -86,7 +86,7 @@ def get_data(CONFIG: dict) -> dict:
         current_day = start_date_datetime + pd.Timedelta(days=current_day_count)
         #print(f'CHECK current date: {current_day}, format: {type(current_day)}')
 
-        next_day = current_day + pd.Timedelta(days=1) # increment by one
+        next_day = current_day + pd.Timedelta(days=1)  # increment by one
         #print(f'CHECK following date: {next_day}, format: {type(next_day)}')
 
         # convert back to string as needed
@@ -109,78 +109,9 @@ def get_data(CONFIG: dict) -> dict:
 
         current_day_count += 1
 
-
     return dict
 
-results = get_data(CONFIG)
-print(results)
-
-#
-# # 1. get the session times:
-#
-# current_day = CONFIG["start_date"]
-# current_day_datetime = datetime.strptime(current_day, "%Y-%m-%d")
-# # print(f'CHECK current_day_datetime: {current_day_datetime}, format: {type(current_day_datetime)}')
-# # well have to convert back to string:
-#
-# # lets try and increment by one:
-# next_day = current_day_datetime + timedelta(days=1)
-# next_day_str = next_day.strftime("%Y-%m-%d")
-# # print(f'CHECK back to string: {next_day_str}, format: {type(next_day_str)}')
-#
-# rth_start = CONFIG["start_date"] + ' 09:30+00:00'
-# rth_end = CONFIG["start_date"] + ' 16:00+00:00'
-#
-# on_start = CONFIG["start_date"] + ' 16:00+00:00'
-# on_end = CONFIG["start_date"] + ' 09:30+00:00'
-
-# GET DATA FUNCTION:
-
-pd.set_option('display.max_columns', None)
-
-# 1. PREPARE DATA AND SIGNALS
-# DataHandler fetches data and returns a dictionary
-data_handler = DataHandler(
-    symbols=CONFIG["symbols"],
-    start_date=CONFIG["start_date"],
-    end_date=CONFIG["end_date"],
-    interval=CONFIG["interval"]
-)
-price_data_dict = data_handler.get_data()
-df = price_data_dict[symbol_to_test]
-
-# --- Workflow Expansion ---
-# Data Preparation and TPO Assignment
-# 1. create dataframe for TPO coordinates: -----------------------------------
-tpo_data_columns = ['datetime', 'price', 'tpo']
-tpo_df = pd.DataFrame(columns=tpo_data_columns)
-print(tpo_df)
-
-# 2. Separate into regular trading hours and overnight trading hours :-------------------------
-start_time = CONFIG["start_date"] + ' 09:30+00:00'
-end_time = CONFIG["start_date"] + ' 16:00+00:00'
-# print(start_time, end_time)
-
-truncated_df = df[(df['date'] >= start_time) & (df['date'] <= end_time)]
-truncated_df = truncated_df.reset_index(drop=True)
-outside_hours_df = df[(df['date'] < start_time) | (df['date'] > end_time)]
-outside_hours_df = outside_hours_df.reset_index(drop=True)
-
-print("TRUNCATED DATA, trading hours")
-print(truncated_df)
-print("OUTSIDE HOURS")
-print(outside_hours_df)
-
-# overall flow of the code:
-# 1. get the data, full day intraday data, interval of 30 mins
-# 2. separate the data either into regular trading hours or overnight trading hours
-# 3. assign letters to the truncated time price data
-# 4. create the point dataframe, either for the consolidated or disintegrated market profile
-# 5. plot the points
-# 5.5. plot value area high value area low
-
 def calculate_market_profile_levels(tpo_df: pd.DataFrame):
-
     # Step 1: Get TPO counts for each price level
     tpo_counts = tpo_df['price'].value_counts().sort_index()
 
@@ -229,7 +160,6 @@ def calculate_market_profile_levels(tpo_df: pd.DataFrame):
     return dict
 
 def create_market_profile_coordinates(df: pd.DataFrame):
-
     tpo_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
     df['tpo'] = [tpo_letters[i] for i in range(len(df))]
 
@@ -268,16 +198,28 @@ def create_market_profile_coordinates(df: pd.DataFrame):
 
     return dict
 
-def get_key_values(consolidated_tpo_df: pd.DataFrame, disintegrated_tpo_df: pd.DataFrame, calculate_market_profile_levels):
+def get_key_values(consolidated_tpo_df: pd.DataFrame,
+                   calculate_market_profile_levels):
     # --- 5. Get key levels before plotting ---
     results = calculate_market_profile_levels(consolidated_tpo_df)
     poc = results['poc']
     vah = results['vah']
     val = results['val']
 
-def plot_coordinates (disintegrated_tpo_df: pd.DataFrame, consolidated_tpo_df: pd.DataFrame, type: int, colourVAL: str = 'green'):
+
+def plot_coordinates(disintegrated_tpo_df: pd.DataFrame, consolidated_tpo_df: pd.DataFrame, VAL: int, VAH: int, POC: int,
+                     colourVAL: str = 'green'):
+    """
+    single session plot for both consolidated and disintegrated profiles.
+    requires both coordinate dfs of consolidated and disintegrated profiles, as well as key levels
+    will not be used for the final iteration of this code
+    """
     # --- 6. Create Side-by-Side Plot ---
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7, 10), sharey=True)
+
+    vah = VAH
+    val = VAL
+    poc = POC
 
     # Plot 1: Disintegrated Profile
     for index, row in disintegrated_tpo_df.iterrows():
@@ -287,7 +229,8 @@ def plot_coordinates (disintegrated_tpo_df: pd.DataFrame, consolidated_tpo_df: p
     ax1.set_ylabel("Price")
     ax1.grid(True, linestyle='--', alpha=0.5)
     ax1.set_xlim(-1, disintegrated_tpo_df['datetime'].max() + 1)
-    ax1.set_ylim(df['low'].min() - 1, df['high'].max() + 1)
+    ax1.set_ylim(disintegrated_tpo_df['price'].min() - 1, disintegrated_tpo_df['price'].max() + 1)
+
     ax1.axhspan(val, vah, color='gray', alpha=0.2)
     ax1.axhline(poc, color='red', linestyle='--', linewidth=2, label=f'POC: {poc}')
     ax1.axhline(vah, color='green', linestyle=':', linewidth=2, label=f'VAH: {vah}')
@@ -297,11 +240,12 @@ def plot_coordinates (disintegrated_tpo_df: pd.DataFrame, consolidated_tpo_df: p
     # Plot 2: Consolidated Profile
     for index, row in consolidated_tpo_df.iterrows():
         color = 'green' if val <= row['price'] <= vah else 'blue'
-        ax2.scatter(x=row['datetime'], y=row['price'], marker='s', s=100, c=color)
+        ax2.scatter(x=row['datetime'], y=row['price'], marker='s', s=100, c=color) # COLOUR LOGIC NOT APPLIED
     ax2.set_title("Consolidated Market Profile")
     ax2.set_xlabel("TPO Count")
     ax2.grid(True, linestyle='--', alpha=0.5)
     ax2.set_xlim(-1, consolidated_tpo_df['datetime'].max() + 1)
+
     ax2.axhspan(val, vah, color='gray', alpha=0.2, label='Value Area (70%)')
     ax2.axhline(poc, color='red', linestyle='--', linewidth=2, label=f'POC: {poc}')
     ax2.axhline(vah, color='green', linestyle=':', linewidth=2, label=f'VAH: {vah}')
@@ -311,6 +255,77 @@ def plot_coordinates (disintegrated_tpo_df: pd.DataFrame, consolidated_tpo_df: p
     plt.tight_layout()
     plt.show()
 
+
+results = get_data(CONFIG)
+#print(results)
+
+#try plotting for a single day:
+test_day_rth = results['2025-08-13 09:30+00:00 -RTH']
+#print("TEST DAY RTH \n", test_day_rth.head(), test_day_rth.tail())
+
+# try to set coordinates for specified day:
+coordinates_dict = create_market_profile_coordinates(test_day_rth)
+print(coordinates_dict)
+
+# get key levels:
+key_levels_dict = calculate_market_profile_levels(coordinates_dict['disintegrated_tpo_df'])
+print(key_levels_dict)
+
+# try plotting:
+plot = plot_coordinates(coordinates_dict['disintegrated_tpo_df'], coordinates_dict['consolidated_tpo_df'], VAH=key_levels_dict['vah'], VAL=key_levels_dict['val'], POC=key_levels_dict['poc'])
+
+
+
+
+
+
+
+
+# ------------------------------------------ANYTHING BELOW IS IRRELEVANT------------------------------------------
+
+pd.set_option('display.max_columns', None)
+
+# 1. PREPARE DATA AND SIGNALS
+# DataHandler fetches data and returns a dictionary
+data_handler = DataHandler(
+    symbols=CONFIG["symbols"],
+    start_date=CONFIG["start_date"],
+    end_date=CONFIG["end_date"],
+    interval=CONFIG["interval"]
+)
+price_data_dict = data_handler.get_data()
+df = price_data_dict[symbol_to_test]
+
+# --- Workflow Expansion ---
+# Data Preparation and TPO Assignment
+# 1. create dataframe for TPO coordinates: -----------------------------------
+tpo_data_columns = ['datetime', 'price', 'tpo']
+tpo_df = pd.DataFrame(columns=tpo_data_columns)
+#print(tpo_df)
+
+# 2. Separate into regular trading hours and overnight trading hours :-------------------------
+start_time = CONFIG["start_date"] + ' 09:30+00:00'
+end_time = CONFIG["start_date"] + ' 16:00+00:00'
+# print(start_time, end_time)
+
+truncated_df = df[(df['date'] >= start_time) & (df['date'] <= end_time)]
+truncated_df = truncated_df.reset_index(drop=True)
+outside_hours_df = df[(df['date'] < start_time) | (df['date'] > end_time)]
+outside_hours_df = outside_hours_df.reset_index(drop=True)
+
+#print("TRUNCATED DATA, trading hours")
+#print(truncated_df)
+#print("OUTSIDE HOURS")
+#print(outside_hours_df)
+
+
+# overall flow of the code:
+# 1. get the data, full day intraday data, interval of 30 mins
+# 2. separate the data either into regular trading hours or overnight trading hours
+# 3. assign letters to the truncated time price data
+# 4. create the point dataframe, either for the consolidated or disintegrated market profile
+# 5. plot the points
+# 5.5. plot value area high value area low
 
 def plot_market_profile(ohlc_df: pd.DataFrame, trading_date: str, calculate_market_profile_levels: bool = True):
     """
@@ -410,6 +425,7 @@ def plot_market_profile(ohlc_df: pd.DataFrame, trading_date: str, calculate_mark
     plt.tight_layout()
     plt.show()
 
+
 # -------------------- Calculation and sketching of profiles --------------------
 
 # disintegrated profile
@@ -428,42 +444,42 @@ if CONFIG["market_profile_type"] == 0:
         high = row['high']
         low = row['low']
 
-        price_range = int((row['high'] - row['low'])/0.25) #maximum number of price points (per tick)
+        price_range = int((row['high'] - row['low']) / 0.25)  #maximum number of price points (per tick)
         # print(f'no of points for {symbol_to_test} at {index}: {price_range}')
         # print(f'current count: {counter}')
 
-        iteration_choice = CONFIG['iteration_choice'] #plot every point by default
+        iteration_choice = CONFIG['iteration_choice']  #plot every point by default
         for number in range(price_range):
             # iterate through the number of price ticks
 
-            print(number) # just to check
+            print(number)  # just to check
             # we will be doing 3 different ways to plot: every tick, every 2 ticks, every 4 ticks (one point)
-            if iteration_choice == 0: # every tick:
+            if iteration_choice == 0:  # every tick:
                 # can just start with the price as it is
                 print(f'Iterating every tick, so low = {low}')
 
-                tpo_df.loc[counter, 'price'] = low + (number*0.25)
-                tpo_df.loc[counter, 'tpo'] = row['tpo'] # current rows' letter
-                tpo_df.loc[counter, 'datetime'] = index # using INDEX instead of DATETIME !!!
+                tpo_df.loc[counter, 'price'] = low + (number * 0.25)
+                tpo_df.loc[counter, 'tpo'] = row['tpo']  # current rows' letter
+                tpo_df.loc[counter, 'datetime'] = index  # using INDEX instead of DATETIME !!!
                 counter += 1
 
-            elif iteration_choice == 1: # every 2 ticks
+            elif iteration_choice == 1:  # every 2 ticks
                 # will have to start with the first .0 or .5
-                low = round(low * 2) / 2 # nearest .5
+                low = round(low * 2) / 2  # nearest .5
                 print(f'iterating every 2 ticks, so low = {low}')
 
-                if number % 2==0 and low < high:
+                if number % 2 == 0 and low < high:
                     tpo_df.loc[counter, 'price'] = low + (number * 0.25)
                     tpo_df.loc[counter, 'tpo'] = row['tpo']  # current rows' letter
                     tpo_df.loc[counter, 'datetime'] = index  # using INDEX instead of DATETIME !!!
                     counter += 1
 
-            elif iteration_choice == 2: # every point:
+            elif iteration_choice == 2:  # every point:
                 # will have to start with the nearest larger whole number
-                low = math.ceil(low) # nearest whole number
+                low = math.ceil(low)  # nearest whole number
                 print(f'iteerating every point, so low = {low}')
 
-                if number % 4==0 and low < high:
+                if number % 4 == 0 and low < high:
                     tpo_df.loc[counter, 'price'] = low + (number * 0.25)
                     tpo_df.loc[counter, 'tpo'] = row['tpo']  # current rows' letter
                     tpo_df.loc[counter, 'datetime'] = index  # using INDEX instead of DATETIME !!!
@@ -514,7 +530,7 @@ elif CONFIG["market_profile_type"] == 1:
     # dict which has price levels as keys and number of points at that price level for teh value
     price_level_occupancy = {}
 
-    for index, row in truncated_df.iterrows(): #iterate every index (every period)
+    for index, row in truncated_df.iterrows():  #iterate every index (every period)
 
         high = row['high']
         low = row['low']
@@ -527,7 +543,7 @@ elif CONFIG["market_profile_type"] == 1:
         price_points = (np.arange(low, high, tick_size))
         print(f'price pointes output: {price_points}')
 
-        for price in price_points: # iterate through price range for the period
+        for price in price_points:  # iterate through price range for the period
             price = round(price / tick_size) * tick_size
             print(f'current price: {price}')
 
