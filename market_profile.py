@@ -8,34 +8,16 @@ import numpy as np
 import math
 from datetime import datetime, timedelta
 
-# key things to change at the end of today:
-# finalize on separation of trading hours - can we obtain data by time? that would be ideal
-# ideally: input a single start and end date, we will obtain data from the regular trading
-# hours of the start date and end at the overnigh trading hours on the end date (subject to change)
-
-# finalize on functions to actually calculate and draw the profiles
-# internal get data function: input ticker and start/end date, do data cleaning
-# separate by days and session: so each day has two sessions, maybe store them in a dict?
-
-# assign the letters, and assign coordinates to plot the points, for both consolidated and
-# disintegrated profile, we will focus on plotting the single day for now
-
-# plot the actual graphs
-
-# CONFIG
-
-
 symbols = ["ES=F"]
 symbol_to_test = "ES=F"
 CONFIG = {
     "symbols": symbols,  # Pass the symbol as a list
-    "start_date": "2025-08-11",  # Using a single day for this example
+    "start_date": "2025-08-01",  # Using a single day for this example
     "end_date": "2025-08-14",
     "interval": "30m",
     "market_profile_type": 10,
     "iteration_choice": 2
 }
-
 
 def truncate_df(df: pd.DataFrame, start_datetime: str, end_datetime: str) -> pd.DataFrame:
     """
@@ -99,14 +81,19 @@ def get_data(CONFIG: dict) -> dict:
         on_start = current_day_str + ' 16:00+00:00'
         on_end = next_day_str + ' 09:30+00:00'
 
-        print(f'CHECK rth date: {rth_start}, format: {type(rth_start)}')
-        print(f'CHECK rth date: {rth_end}, format: {type(rth_end)}')
-        print(f'CHECK on_date: {on_start}, format: {type(on_start)}')
-        print(f'CHECK on_date: {on_end}, format: {type(on_end)}')
+        # print(f'CHECK rth date: {rth_start}, format: {type(rth_start)}')
+        # print(f'CHECK rth date: {rth_end}, format: {type(rth_end)}')
+        # print(f'CHECK on_date: {on_start}, format: {type(on_start)}')
+        # print(f'CHECK on_date: {on_end}, format: {type(on_end)}')
 
-        dict.update({rth_start + ' -RTH': truncate_df(df, rth_start, rth_end)})
-        dict.update({on_start + ' -OVERNIGHT': truncate_df(df, on_start, on_end)})
+        rth_df = truncate_df(df, rth_start, rth_end)
+        if not rth_df.empty:
+            dict.update({rth_start + ' -RTH': rth_df})
 
+        # Get the DataFrame for Overnight Trading Hours
+        on_df = truncate_df(df, on_start, on_end)
+        if not on_df.empty:
+            dict.update({on_start + ' -OVERNIGHT': on_df})
         current_day_count += 1
 
     return dict
@@ -256,23 +243,133 @@ def plot_coordinates(disintegrated_tpo_df: pd.DataFrame, consolidated_tpo_df: pd
     plt.show()
 
 
+def plot_coordinates_single(consolidated_tpo_df: pd.DataFrame):
+    fig, ax1 = plt.subplots(figsize=(10, 8))
+
+    # Plot 2: Consolidated Profile (renamed to avoid confusion with your code)
+    for index, row in consolidated_tpo_df.iterrows():
+        # You can add your color logic here
+        ax1.scatter(x=row['datetime'], y=row['price'], marker='s', s=10, c='green')  # Use ax1
+
+    ax1.set_title("Consolidated Market Profile")
+    ax1.set_xlabel("TPO Count")
+    ax1.grid(True, linestyle='--', alpha=0.5)
+    ax1.set_xlim(-1, consolidated_tpo_df['datetime'].max() + 1)
+
+    plt.tight_layout()
+    plt.show()
+
+
 results = get_data(CONFIG)
+print(results)
 #print(results)
 
-#try plotting for a single day:
-test_day_rth = results['2025-08-13 09:30+00:00 -RTH']
-#print("TEST DAY RTH \n", test_day_rth.head(), test_day_rth.tail())
+#
+# #try plotting for a single day:
+# test_day_rth = results['2025-08-13 09:30+00:00 -RTH']
+# #print("TEST DAY RTH \n", test_day_rth.head(), test_day_rth.tail())
+#
+# # try to set coordinates for specified day:
+# coordinates_dict = create_market_profile_coordinates(test_day_rth)
+# print(coordinates_dict)
+#
+# # get key levels:
+# key_levels_dict = calculate_market_profile_levels(coordinates_dict['disintegrated_tpo_df'])
+# print(key_levels_dict)
+#
+# # try plotting:
+# plot = plot_coordinates(coordinates_dict['disintegrated_tpo_df'], coordinates_dict['consolidated_tpo_df'], VAH=key_levels_dict['vah'], VAL=key_levels_dict['val'], POC=key_levels_dict['poc'])
+#
 
-# try to set coordinates for specified day:
-coordinates_dict = create_market_profile_coordinates(test_day_rth)
-print(coordinates_dict)
+# whats next?
+# plotting multiple days:
+# before we do that:
+# we need to at least be able to plot the coordinates of all the days in the range
+# right now, we will only focus on plotting RTH consolidated profiles
+# what do we do?
+# iterate through each day,
+# at each iteration, we append the coordinates from the individual coordinate dataframe for the day,
+# to a new coordinate dataframe for all the days.
+# the price (y value) and the letter ('z' value) wont be changed
+# but the date value will sum with all previous horizontal lengths of the profile
+# we will create this coordinate dataframe first before attempting to plot it.
 
-# get key levels:
-key_levels_dict = calculate_market_profile_levels(coordinates_dict['disintegrated_tpo_df'])
-print(key_levels_dict)
+counter_one = 2
+counter = 2
 
-# try plotting:
-plot = plot_coordinates(coordinates_dict['disintegrated_tpo_df'], coordinates_dict['consolidated_tpo_df'], VAH=key_levels_dict['vah'], VAL=key_levels_dict['val'], POC=key_levels_dict['poc'])
+# before we do that, we need to create the coordinates for all the sessions
+# simply loop through them and do the calculations
+
+# the function that calculates the coordinates returns a dict for that session,
+
+session_coordinates_dict = {}
+for key, items in results.items():
+    # the function that calculates the coordinates returns a dict for that session,
+    # both the consolidated and disintegrated profiles
+    # we will iteraet through all sessions and return another dict containing all
+    # newly calculated coordinates for each session
+
+    #print(f'try printing key: {key}') # we can access the key of the dataframe like this:
+    session_coordinates_dict.update({f'{key}': create_market_profile_coordinates(items)['consolidated_tpo_df']})
+    #print(session_coordinates_dict)
+
+# building coordinates of all:
+all_coord_df =[]
+prev_x_length = 0
+for value in session_coordinates_dict.values(): # iterate through the values of the dict
+
+    if counter == 2: # on the first iteration, we set the coord df to be this
+        all_coord_df = value
+        print('one iteration of RTH?')
+
+        # what do we do in one iteration?
+        # append the dataframe into the new one
+        # the first iteration is the most simple, since we dont need to do any operations
+
+        all_coord_df = pd.concat([all_coord_df, value], ignore_index=True)
+        print(f'ITERATION CHECK FIRST ITERATION _______________________________: ', counter)
+        print(all_coord_df)
+        print(f'number of rows:', all_coord_df.shape[0])
+
+        prev_x_length = value['datetime'].max()
+        print(f'prev_x_length:', prev_x_length)
+        # print(value)
+        counter += 1
+
+    elif counter % 2 == 0:
+        print('one iteration of RTH?')
+
+        # what do we do in one iteration?
+        # append the dataframe into the new one
+        # the first iteration is the most simple, since we dont need to do any operations
+
+        adjusted_df = value
+        adjusted_df['datetime'] = value['datetime'] + prev_x_length + 5
+
+        all_coord_df = pd.concat([all_coord_df, adjusted_df],ignore_index=True)
+        print(f'ITERATION CHECK: ', counter)
+        print(all_coord_df)
+
+        print(f'number of rows:', all_coord_df.shape[0])
+
+        prev_x_length = value['datetime'].max()
+        print(f'prev_x_length:', prev_x_length)
+
+        counter += 1
+
+    else :
+        #print('another iteration OVERNIGHT?')
+        #print(value)
+        counter += 1
+
+
+# lets try and plot this!
+
+plot_coordinates_single(all_coord_df)
+
+# all_coord_df = all_coord_df.drop('index', axis=1)
+# print('dropped index column check:')
+# print(all_coord_df)
 
 
 
@@ -280,6 +377,7 @@ plot = plot_coordinates(coordinates_dict['disintegrated_tpo_df'], coordinates_di
 
 
 
+#OK NICE!!!!! lets plot ts
 
 # ------------------------------------------ANYTHING BELOW IS IRRELEVANT------------------------------------------
 
