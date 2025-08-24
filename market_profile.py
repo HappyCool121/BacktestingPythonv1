@@ -295,72 +295,93 @@ print(results)
 # we will create this coordinate dataframe first before attempting to plot it.
 
 counter_one = 2
-counter = 2
 
 # before we do that, we need to create the coordinates for all the sessions
 # simply loop through them and do the calculations
-
 # the function that calculates the coordinates returns a dict for that session,
+
+# will also calculate the key values for each session
 
 session_coordinates_dict = {}
 for key, items in results.items():
-    # the function that calculates the coordinates returns a dict for that session,
-    # both the consolidated and disintegrated profiles
-    # we will iteraet through all sessions and return another dict containing all
-    # newly calculated coordinates for each session
+    # this loop will calculate the coordinates for the consolidated profile for each session
+    # as well as the key values for that session
+    # for each session, we will have a dict: the df containing the coordinate data, as well as the key levels
 
-    #print(f'try printing key: {key}') # we can access the key of the dataframe like this:
-    session_coordinates_dict.update({f'{key}': create_market_profile_coordinates(items)['consolidated_tpo_df']})
-    #print(session_coordinates_dict)
+    session_coordinates_df = create_market_profile_coordinates(items)['consolidated_tpo_df']
+    session_key_levels_dict = calculate_market_profile_levels(session_coordinates_df)
+    session_info_dict = {'coordinate_df': session_coordinates_df,
+                         'poc': session_key_levels_dict['poc'],
+                         'vah': session_key_levels_dict['vah'],
+                         'val': session_key_levels_dict['val']}
 
-# building coordinates of all:
+    session_coordinates_dict.update({f'{key}': session_info_dict})
+    # dict will look like:
+    # '2025-08-11 16:00+00:00 -OVERNIGHT' : {'coordinate_df': df, 'poc':, 'vah':, 'val': }
+
+    # print(session_coordinates_dict)
+    # print(f'try printing key: {key}') # we can access the key of the dataframe like this:
+    # session_coordinates_dict.update({f'{key}': session_coordinates_df,
+    #                                  f'{key} key levels: ': calculate_market_profile_levels(session_coordinates_df)})
+
+print('------------------------------------- printing session coordinates dict ------------------------------------------------------------')
+print(session_coordinates_dict)
+print('------------------------------------- end of session coordinates dict -------------------------------------------------')
+
+# building coordinates for all required sessions (into one dataframe)
 all_coord_df =[]
 prev_x_length = 0
-for value in session_coordinates_dict.values(): # iterate through the values of the dict
+counter = 2 # to check for RTH and overnight sessions
 
-    if counter == 2: # on the first iteration, we set the coord df to be this
-        all_coord_df = value
-        print('one iteration of RTH?')
+run = True
 
-        # what do we do in one iteration?
-        # append the dataframe into the new one
-        # the first iteration is the most simple, since we dont need to do any operations
+if run:
+    for value in session_coordinates_dict.values(): # iterate through the values of the dict
 
-        all_coord_df = pd.concat([all_coord_df, value], ignore_index=True)
-        print(f'ITERATION CHECK FIRST ITERATION _______________________________: ', counter)
-        print(all_coord_df)
-        print(f'number of rows:', all_coord_df.shape[0])
+        if counter == 2: # on the first iteration, we set the coord df to be this
+            all_coord_df = value['coordinate_df']
+            print(f'one iteration of RTH? CHECK: PRINTING COORDINATE DF FOR 1st ITERATION::::::::::::::::::::::::::::::::::::::')
 
-        prev_x_length = value['datetime'].max()
-        print(f'prev_x_length:', prev_x_length)
-        # print(value)
-        counter += 1
+            print(value['coordinate_df'])
 
-    elif counter % 2 == 0:
-        print('one iteration of RTH?')
+            # what do we do in one iteration?
+            # append the dataframe into the new one
+            # the first iteration is the most simple, since we dont need to do any operations
 
-        # what do we do in one iteration?
-        # append the dataframe into the new one
-        # the first iteration is the most simple, since we dont need to do any operations
+            all_coord_df = pd.concat([all_coord_df, value['coordinate_df']], ignore_index=True)
+            print(f'ITERATION CHECK FIRST ITERATION _______________________________: ', counter)
+            print(all_coord_df)
+            print(f'number of rows:', all_coord_df.shape[0])
 
-        adjusted_df = value
-        adjusted_df['datetime'] = value['datetime'] + prev_x_length + 5
+            prev_x_length = value['coordinate_df']['datetime'].max()
+            print(f'prev_x_length:', prev_x_length)
+            # print(value)
+            counter += 1
 
-        all_coord_df = pd.concat([all_coord_df, adjusted_df],ignore_index=True)
-        print(f'ITERATION CHECK: ', counter)
-        print(all_coord_df)
+        elif counter % 2 == 0:
+            print('one iteration of RTH?')
+            # what do we do in one iteration?
+            # append the dataframe into the new one
+            # the first iteration is the most simple, since we dont need to do any operations
 
-        print(f'number of rows:', all_coord_df.shape[0])
+            adjusted_df = value['coordinate_df']
+            adjusted_df['datetime'] = value['coordinate_df']['datetime'] + prev_x_length + 5
 
-        prev_x_length = value['datetime'].max()
-        print(f'prev_x_length:', prev_x_length)
+            all_coord_df = pd.concat([all_coord_df, adjusted_df],ignore_index=True)
+            print(f'ITERATION CHECK: ', counter)
+            print(all_coord_df)
 
-        counter += 1
+            print(f'number of rows:', all_coord_df.shape[0])
 
-    else :
-        #print('another iteration OVERNIGHT?')
-        #print(value)
-        counter += 1
+            prev_x_length = value['coordinate_df']['datetime'].max()
+            print(f'prev_x_length:', prev_x_length)
+
+            counter += 1
+
+        else :
+            #print('another iteration OVERNIGHT?')
+            #print(value)
+            counter += 1
 
 
 # lets try and plot this!
