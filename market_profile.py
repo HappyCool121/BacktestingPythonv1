@@ -193,7 +193,6 @@ def get_key_values(consolidated_tpo_df: pd.DataFrame,
     vah = results['vah']
     val = results['val']
 
-
 def plot_coordinates(disintegrated_tpo_df: pd.DataFrame, consolidated_tpo_df: pd.DataFrame, VAL: int, VAH: int, POC: int,
                      colourVAL: str = 'green'):
     """
@@ -248,7 +247,7 @@ def plot_coordinates_single(consolidated_tpo_df: pd.DataFrame):
 
     # Plot 2: Consolidated Profile (renamed to avoid confusion with your code)
     for index, row in consolidated_tpo_df.iterrows():
-        # You can add your color logic here
+        # color logic goes here
         ax1.scatter(x=row['datetime'], y=row['price'], marker='s', s=10, c='green')  # Use ax1
 
     ax1.set_title("Consolidated Market Profile")
@@ -260,39 +259,66 @@ def plot_coordinates_single(consolidated_tpo_df: pd.DataFrame):
     plt.show()
 
 
+def plot_multi_session_profile(session_data: dict):
+    """
+    Plots multiple consolidated market profiles side-by-side on a single chart,
+    coloring TPOs based on their session's specific Value Area.
+
+    Args:
+        session_data (dict): The dictionary containing coordinate dfs and key levels for each session.
+    """
+    fig, ax = plt.subplots(figsize=(20, 10))
+    x_offset = 0  # This will track the horizontal position for each new profile
+
+    # Loop through each session (e.g., '2025-08-08-RTH', '2025-08-08-OVERNIGHT', etc.)
+    for session_key, session_info in session_data.items():
+
+        # Extract the data for the current session
+        coord_df = session_info['coordinate_df']
+        poc = session_info['poc']
+        vah = session_info['vah']
+        val = session_info['val']
+
+        # --- Plot each TPO point for the current session ---
+        for index, row in coord_df.iterrows():
+            # Determine color based on THIS session's Value Area
+            color = 'green' if val <= row['price'] <= vah else 'blue'
+
+            # Plot the point with the calculated horizontal offset
+            ax.scatter(
+                x=row['datetime'] + x_offset,
+                y=row['price'],
+                marker='s',
+                s=1,  # Smaller size for better detail
+                c=color
+            )
+
+        # --- Draw the key levels for the current session ---
+        profile_width = coord_df['datetime'].max()
+        # Use ax.hlines for cleaner horizontal lines across a specific range
+        ax.hlines(poc, xmin=x_offset, xmax=x_offset + profile_width, color='red', linestyle='-',
+                  label=f'POC ({session_key.split(" ")[-1]})')
+        ax.hlines(vah, xmin=x_offset, xmax=x_offset + profile_width, color='lime', linestyle='-')
+        ax.hlines(val, xmin=x_offset, xmax=x_offset + profile_width, color='dodgerblue', linestyle='-')
+
+        # Add a vertical line to separate the sessions
+        if x_offset > 0:
+            ax.axvline(x=x_offset - 2.5, color='black', linestyle='--', alpha=0.1)
+
+        # Update the offset for the next profile, adding a gap of 5 units
+        x_offset += profile_width + 5
+
+    ax.set_title("Multi-Session Consolidated Market Profile")
+    ax.set_xlabel("TPO Count (Combined Sessions)")
+    ax.set_ylabel("Price")
+    ax.grid(True, linestyle='--', alpha=0.5)
+    ax.legend()
+    plt.show()
+
+
 results = get_data(CONFIG)
 print(results)
 #print(results)
-
-#
-# #try plotting for a single day:
-# test_day_rth = results['2025-08-13 09:30+00:00 -RTH']
-# #print("TEST DAY RTH \n", test_day_rth.head(), test_day_rth.tail())
-#
-# # try to set coordinates for specified day:
-# coordinates_dict = create_market_profile_coordinates(test_day_rth)
-# print(coordinates_dict)
-#
-# # get key levels:
-# key_levels_dict = calculate_market_profile_levels(coordinates_dict['disintegrated_tpo_df'])
-# print(key_levels_dict)
-#
-# # try plotting:
-# plot = plot_coordinates(coordinates_dict['disintegrated_tpo_df'], coordinates_dict['consolidated_tpo_df'], VAH=key_levels_dict['vah'], VAL=key_levels_dict['val'], POC=key_levels_dict['poc'])
-#
-
-# whats next?
-# plotting multiple days:
-# before we do that:
-# we need to at least be able to plot the coordinates of all the days in the range
-# right now, we will only focus on plotting RTH consolidated profiles
-# what do we do?
-# iterate through each day,
-# at each iteration, we append the coordinates from the individual coordinate dataframe for the day,
-# to a new coordinate dataframe for all the days.
-# the price (y value) and the letter ('z' value) wont be changed
-# but the date value will sum with all previous horizontal lengths of the profile
-# we will create this coordinate dataframe first before attempting to plot it.
 
 counter_one = 2
 
@@ -328,12 +354,16 @@ print('------------------------------------- printing session coordinates dict -
 print(session_coordinates_dict)
 print('------------------------------------- end of session coordinates dict -------------------------------------------------')
 
+plot_multi_session_profile(session_coordinates_dict)
+
+
 # building coordinates for all required sessions (into one dataframe)
+# additionally, we will also be assigning colours to the letter values:
 all_coord_df =[]
 prev_x_length = 0
 counter = 2 # to check for RTH and overnight sessions
 
-run = True
+run = False # placeholder
 
 if run:
     for value in session_coordinates_dict.values(): # iterate through the values of the dict
@@ -385,17 +415,8 @@ if run:
 
 
 # lets try and plot this!
-
-plot_coordinates_single(all_coord_df)
-
-# all_coord_df = all_coord_df.drop('index', axis=1)
-# print('dropped index column check:')
-# print(all_coord_df)
-
-
-
-
-
+# old plotting function
+# plot_coordinates_single(all_coord_df, vah)
 
 
 #OK NICE!!!!! lets plot ts
