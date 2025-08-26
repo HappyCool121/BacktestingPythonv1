@@ -8,11 +8,11 @@ import numpy as np
 import math
 from datetime import datetime, timedelta
 
-symbols = ["ES=F"]
-symbol_to_test = "ES=F"
+symbols = ["NQ=F"]
+symbol_to_test = "NQ=F"
 CONFIG = {
     "symbols": symbols,  # Pass the symbol as a list
-    "start_date": "2025-08-01",  # Using a single day for this example
+    "start_date": "2025-08-05",  # Using a single day for this example
     "end_date": "2025-08-14",
     "interval": "30m",
     "market_profile_type": 10,
@@ -81,10 +81,10 @@ def get_data(CONFIG: dict) -> dict:
         on_start = current_day_str + ' 16:00+00:00'
         on_end = next_day_str + ' 09:30+00:00'
 
-        # print(f'CHECK rth date: {rth_start}, format: {type(rth_start)}')
-        # print(f'CHECK rth date: {rth_end}, format: {type(rth_end)}')
-        # print(f'CHECK on_date: {on_start}, format: {type(on_start)}')
-        # print(f'CHECK on_date: {on_end}, format: {type(on_end)}')
+        print(f'CHECK rth date: {rth_start}, format: {type(rth_start)}')
+        print(f'CHECK rth date: {rth_end}, format: {type(rth_end)}')
+        print(f'CHECK on_date: {on_start}, format: {type(on_start)}')
+        print(f'CHECK on_date: {on_end}, format: {type(on_end)}')
 
         rth_df = truncate_df(df, rth_start, rth_end)
         if not rth_df.empty:
@@ -100,6 +100,8 @@ def get_data(CONFIG: dict) -> dict:
 
 def calculate_market_profile_levels(tpo_df: pd.DataFrame):
     # Step 1: Get TPO counts for each price level
+    print('CHECK TPO DF before calculating market profile levels')
+    print(tpo_df)
     tpo_counts = tpo_df['price'].value_counts().sort_index()
 
     # Step 2: Find the Point of Control (POC)
@@ -146,7 +148,7 @@ def calculate_market_profile_levels(tpo_df: pd.DataFrame):
     }
     return dict
 
-def create_market_profile_coordinates(df: pd.DataFrame):
+def create_market_profile_coordinates(df: pd.DataFrame, ticksize: float = 0.25):
     tpo_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
     df['tpo'] = [tpo_letters[i] for i in range(len(df))]
 
@@ -154,7 +156,7 @@ def create_market_profile_coordinates(df: pd.DataFrame):
     disintegrated_rows = []
     for index, row in df.iterrows():
         high, low, tpo_letter = row['high'], row['low'], row['tpo']
-        tick_size = 0.25
+        tick_size = ticksize
         price_range = int((high - low) / tick_size)
         low = math.ceil(low)
         for number in range(price_range):
@@ -162,13 +164,15 @@ def create_market_profile_coordinates(df: pd.DataFrame):
                 price = low + (number * tick_size)
                 disintegrated_rows.append({'datetime': index, 'price': price, 'tpo': tpo_letter})
     disintegrated_tpo_df = pd.DataFrame(disintegrated_rows)
+    print('CHECK disintegrated tpo dataframe')
+    print(disintegrated_tpo_df)
 
     # --- 4. Generate Data for Consolidated Profile ---
     consolidated_rows = []
     price_level_occupancy = {}
     for index, row in df.iterrows():
         high, low, tpo_letter = row['high'], row['low'], row['tpo']
-        tick_size = 1.0
+        tick_size = ticksize * 4
         low = math.ceil(low)
         price_points = np.arange(low, high, tick_size)
         for price in price_points:
@@ -177,6 +181,8 @@ def create_market_profile_coordinates(df: pd.DataFrame):
             consolidated_rows.append({'datetime': x_pos, 'price': price, 'tpo': tpo_letter})
             price_level_occupancy[price] = x_pos + 1
     consolidated_tpo_df = pd.DataFrame(consolidated_rows)
+    print('CHECK consolidated tpo dataframe')
+    print(consolidated_tpo_df)
 
     dict = {
         'consolidated_tpo_df': consolidated_tpo_df,
@@ -258,8 +264,7 @@ def plot_coordinates_single(consolidated_tpo_df: pd.DataFrame):
     plt.tight_layout()
     plt.show()
 
-
-def plot_multi_session_profile(session_data: dict):
+def plot_multi_session_profile(session_data: dict, session_type_to_plot: str = 'RTH'):
     """
     Plots multiple consolidated market profiles side-by-side on a single chart,
     coloring TPOs based on their session's specific Value Area.
@@ -267,12 +272,30 @@ def plot_multi_session_profile(session_data: dict):
     Args:
         session_data (dict): The dictionary containing coordinate dfs and key levels for each session.
     """
+
+    if session_type_to_plot == 'RTH':
+        sessions_to_plot = {k: v for k, v in session_data.items() if k.endswith('-RTH')}
+        title = "Multi-Session RTH Profile"
+    elif session_type_to_plot == 'ON':
+        sessions_to_plot = {k: v for k, v in session_data.items() if k.endswith('-OVERNIGHT')}
+        title = "Multi-Session Overnight Profile"
+    elif session_type_to_plot == 'both':
+        sessions_to_plot = session_data
+        title = "Multi-Session Full Profile"
+    else:
+        print("Invalid session_type_to_plot. Choose 'RTH', 'ON', or 'both'.")
+        return
+
+    if not sessions_to_plot:
+        print(f"No data found for session type '{session_type_to_plot}'.")
+        return
+
+    plt.style.use('dark_background')
     fig, ax = plt.subplots(figsize=(20, 10))
     x_offset = 0  # This will track the horizontal position for each new profile
 
     # Loop through each session (e.g., '2025-08-08-RTH', '2025-08-08-OVERNIGHT', etc.)
     for session_key, session_info in session_data.items():
-
         # Extract the data for the current session
         coord_df = session_info['coordinate_df']
         poc = session_info['poc']
@@ -282,7 +305,13 @@ def plot_multi_session_profile(session_data: dict):
         # --- Plot each TPO point for the current session ---
         for index, row in coord_df.iterrows():
             # Determine color based on THIS session's Value Area
-            color = 'green' if val <= row['price'] <= vah else 'blue'
+
+            if row['tpo'] == 'A':
+                color = 'c'  # Opening Balance
+            elif val <= row['price'] <= vah:
+                color = 'green'  # Inside Value Area
+            else:
+                color = 'blue'  # Outside Value Area
 
             # Plot the point with the calculated horizontal offset
             ax.scatter(
@@ -312,7 +341,7 @@ def plot_multi_session_profile(session_data: dict):
     ax.set_xlabel("TPO Count (Combined Sessions)")
     ax.set_ylabel("Price")
     ax.grid(True, linestyle='--', alpha=0.5)
-    ax.legend()
+    #ax.legend()
     plt.show()
 
 
@@ -354,17 +383,23 @@ print('------------------------------------- printing session coordinates dict -
 print(session_coordinates_dict)
 print('------------------------------------- end of session coordinates dict -------------------------------------------------')
 
+
+# current plotting function that plots all the sessions with a single function and input
 plot_multi_session_profile(session_coordinates_dict)
 
 
 # building coordinates for all required sessions (into one dataframe)
+# UPDATE: this is actually quite redundant, sinvce the current plotting logic simply
+# takes the whole dict of sessions and plots them straight.
+# actually this makes it way easier to work with the individual sessions, since we dont have
+# to worry about contextual information being lost when processing the data
 # additionally, we will also be assigning colours to the letter values:
+
 all_coord_df =[]
 prev_x_length = 0
 counter = 2 # to check for RTH and overnight sessions
 
 run = False # placeholder
-
 if run:
     for value in session_coordinates_dict.values(): # iterate through the values of the dict
 
