@@ -8,8 +8,8 @@ import numpy as np
 import math
 from datetime import datetime, timedelta
 
-symbols = ["NQ=F"]
-symbol_to_test = "NQ=F"
+symbols = ["ES=F"]
+symbol_to_test = "ES=F"
 CONFIG = {
     "symbols": symbols,  # Pass the symbol as a list
     "start_date": "2025-08-05",  # Using a single day for this example
@@ -96,11 +96,14 @@ def get_data(CONFIG: dict) -> dict:
             dict.update({on_start + ' -OVERNIGHT': on_df})
         current_day_count += 1
 
+    # once done
+    print('______________________________END OF DATA COLLECTION FUNCTION______________________________ ')
+
     return dict
 
 def calculate_market_profile_levels(tpo_df: pd.DataFrame):
     # Step 1: Get TPO counts for each price level
-    print('CHECK TPO DF before calculating market profile levels')
+    print('CHECK TPO DF (before calculating market profile levels)')
     print(tpo_df)
     tpo_counts = tpo_df['price'].value_counts().sort_index()
 
@@ -164,7 +167,7 @@ def create_market_profile_coordinates(df: pd.DataFrame, ticksize: float = 0.25):
                 price = low + (number * tick_size)
                 disintegrated_rows.append({'datetime': index, 'price': price, 'tpo': tpo_letter})
     disintegrated_tpo_df = pd.DataFrame(disintegrated_rows)
-    print('CHECK disintegrated tpo dataframe')
+    print('CHECK disintegrated tpo dataframe (creating market profie coordinates fucntion)')
     print(disintegrated_tpo_df)
 
     # --- 4. Generate Data for Consolidated Profile ---
@@ -181,7 +184,7 @@ def create_market_profile_coordinates(df: pd.DataFrame, ticksize: float = 0.25):
             consolidated_rows.append({'datetime': x_pos, 'price': price, 'tpo': tpo_letter})
             price_level_occupancy[price] = x_pos + 1
     consolidated_tpo_df = pd.DataFrame(consolidated_rows)
-    print('CHECK consolidated tpo dataframe')
+    print('CHECK consolidated tpo dataframe (creating market profie coordinates fucntion)')
     print(consolidated_tpo_df)
 
     dict = {
@@ -247,7 +250,6 @@ def plot_coordinates(disintegrated_tpo_df: pd.DataFrame, consolidated_tpo_df: pd
     plt.tight_layout()
     plt.show()
 
-
 def plot_coordinates_single(consolidated_tpo_df: pd.DataFrame):
     fig, ax1 = plt.subplots(figsize=(10, 8))
 
@@ -264,7 +266,7 @@ def plot_coordinates_single(consolidated_tpo_df: pd.DataFrame):
     plt.tight_layout()
     plt.show()
 
-def plot_multi_session_profile(session_data: dict, session_type_to_plot: str = 'RTH'):
+def plot_multi_session_profile(session_data: dict, session_type_to_plot: str = 'RTH', plot_start_date: str = None):
     """
     Plots multiple consolidated market profiles side-by-side on a single chart,
     coloring TPOs based on their session's specific Value Area.
@@ -293,6 +295,8 @@ def plot_multi_session_profile(session_data: dict, session_type_to_plot: str = '
     plt.style.use('dark_background')
     fig, ax = plt.subplots(figsize=(20, 10))
     x_offset = 0  # This will track the horizontal position for each new profile
+
+    print('plotting market profile....')
 
     # Loop through each session (e.g., '2025-08-08-RTH', '2025-08-08-OVERNIGHT', etc.)
     for session_key, session_info in session_data.items():
@@ -348,13 +352,11 @@ def plot_multi_session_profile(session_data: dict, session_type_to_plot: str = '
 results = get_data(CONFIG)
 print(results)
 #print(results)
-
 counter_one = 2
 
 # before we do that, we need to create the coordinates for all the sessions
 # simply loop through them and do the calculations
 # the function that calculates the coordinates returns a dict for that session,
-
 # will also calculate the key values for each session
 
 session_coordinates_dict = {}
@@ -363,8 +365,8 @@ for key, items in results.items():
     # as well as the key values for that session
     # for each session, we will have a dict: the df containing the coordinate data, as well as the key levels
 
-    session_coordinates_df = create_market_profile_coordinates(items)['consolidated_tpo_df']
-    session_key_levels_dict = calculate_market_profile_levels(session_coordinates_df)
+    session_coordinates_df = create_market_profile_coordinates(items)['consolidated_tpo_df'] # this function returns a dict, we just want consolidated df
+    session_key_levels_dict = calculate_market_profile_levels(session_coordinates_df) # this function also returns a dict
     session_info_dict = {'coordinate_df': session_coordinates_df,
                          'poc': session_key_levels_dict['poc'],
                          'vah': session_key_levels_dict['vah'],
@@ -379,13 +381,17 @@ for key, items in results.items():
     # session_coordinates_dict.update({f'{key}': session_coordinates_df,
     #                                  f'{key} key levels: ': calculate_market_profile_levels(session_coordinates_df)})
 
-print('------------------------------------- printing session coordinates dict ------------------------------------------------------------')
+print('------------------------------------- PRINTING SESSION COORDINATES DICTIONARY ------------------------------------------------------------')
 print(session_coordinates_dict)
-print('------------------------------------- end of session coordinates dict -------------------------------------------------')
+print('------------------------------------- END OF SESSION COORDINATES DICTIONARY -------------------------------------------------')
 
 
 # current plotting function that plots all the sessions with a single function and input
 plot_multi_session_profile(session_coordinates_dict)
+
+
+
+
 
 
 # building coordinates for all required sessions (into one dataframe)
@@ -399,7 +405,7 @@ all_coord_df =[]
 prev_x_length = 0
 counter = 2 # to check for RTH and overnight sessions
 
-run = False # placeholder
+run = False # placeholder, dont run individal plotting
 if run:
     for value in session_coordinates_dict.values(): # iterate through the values of the dict
 
@@ -449,14 +455,15 @@ if run:
             counter += 1
 
 
-# lets try and plot this!
-# old plotting function
-# plot_coordinates_single(all_coord_df, vah)
-
-
-#OK NICE!!!!! lets plot ts
-
+# ----------------------------------------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------------------------------------
 # ------------------------------------------ANYTHING BELOW IS IRRELEVANT------------------------------------------
+# ----------------------------------------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------------------------------------
+
+
+
+
 
 pd.set_option('display.max_columns', None)
 
